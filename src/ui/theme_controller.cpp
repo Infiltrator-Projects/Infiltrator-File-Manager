@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "theme_controller.hpp"
 
+#include <cstdint>
 #include <cstdio>
 #include <sstream>
 #include <string>
