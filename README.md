@@ -2,7 +2,7 @@
 
 Infiltrator File Manager is a clean-sheet file-management project for InfiltratorOS.
 
-**Current source version:** 0.1.1  
+**Current source version:** 0.1.2  
 **Shared foundation:** exact Infiltratr Common 1.19.38 gitlink, linked through the full Common target on InfiltratorOS/POSIX  
 **Desktop implementation:** C++20 + GTK 4/GIO  
 **Status:** early implementation; read-only browsing tranche with live appearance integration
@@ -52,7 +52,7 @@ The catalogue is intentionally broader than the current release. It is the produ
 
 Common's role is documented separately in [`docs/COMMON-INTEGRATION.md`](docs/COMMON-INTEGRATION.md). That ledger identifies which mechanics Files should inherit from Common, which semantics remain Files-owned, and which capabilities remain InfiltratorFS-owned.
 
-## Current 0.1.1 implementation
+## Current 0.1.2 implementation
 
 The initial executable is `infiltrator-file-manager`, presented to the user as **Files**.
 
@@ -88,7 +88,7 @@ ctest --test-dir build --output-on-failure
 ./build/infiltrator-file-manager
 ```
 
-The build rejects a missing, wrong-version or wrong-commit Infiltratr Common checkout. Version 0.1.1 is pinned to Common 1.19.38 at commit `04b5e219924ec0e65ef9d254c114fad4de0abd29`.
+The build rejects a missing, wrong-version or wrong-commit Infiltratr Common checkout. Version 0.1.2 is pinned to Common 1.19.38 at commit `04b5e219924ec0e65ef9d254c114fad4de0abd29`.
 
 ## Design documents
 
