@@ -66,7 +66,8 @@ target_link_libraries(infiltrator-files-core PUBLIC InfiltratrCommon::Common)
 
 add_executable(infiltrator-file-manager
     src/main.cpp
-    src/ui/file_manager_window.cpp)
+    src/ui/file_manager_window.cpp
+    src/ui/theme_controller.cpp)
 target_include_directories(infiltrator-file-manager PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(infiltrator-file-manager PRIVATE
