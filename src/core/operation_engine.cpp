@@ -32,6 +32,11 @@ bool path_present(const std::filesystem::path &path, std::error_code &error)
 {
     error.clear();
     const std::filesystem::file_status status = std::filesystem::symlink_status(path, error);
+    if (error == std::errc::no_such_file_or_directory ||
+        error == std::errc::not_a_directory) {
+        error.clear();
+        return false;
+    }
     if (error) {
         return false;
     }
@@ -436,6 +441,14 @@ OperationResult OperationEngine::rename_item(const std::filesystem::path &source
     const std::filesystem::path destination =
         source.parent_path() / std::filesystem::path(std::string(new_name));
     if (destination == source) {
+        std::error_code error;
+        const bool source_exists = path_present(source, error);
+        if (error || !source_exists) {
+            return failure(error ? status_for_error(error) : OperationStatus::InvalidRequest,
+                           OperationPhase::Preflight,
+                           destination,
+                           "The selected item no longer exists.");
+        }
         return OperationResult{OperationStatus::Success,
                                OperationPhase::Complete,
                                destination,
@@ -570,13 +583,13 @@ OperationResult OperationEngine::copy_item(const std::filesystem::path &source,
     if (error) {
         const OperationStatus status = status_for_error(error);
         std::error_code cleanup_error;
-        std::filesystem::remove_all(destination, cleanup_error);
+        (void)std::filesystem::remove_all(destination, cleanup_error);
         return copy_failure(status, destination, error, static_cast<bool>(cleanup_error));
     }
 
     if (!equivalent_copy_shape(source, destination, error)) {
         std::error_code cleanup_error;
-        std::filesystem::remove_all(destination, cleanup_error);
+        (void)std::filesystem::remove_all(destination, cleanup_error);
         if (cleanup_error) {
             return failure(OperationStatus::VerificationFailure,
                            OperationPhase::Verify,
@@ -602,6 +615,15 @@ OperationResult OperationEngine::move_item(const std::filesystem::path &source,
                                             const std::filesystem::path &destination_parent) const
 {
     if (source.parent_path() == destination_parent) {
+        std::error_code same_parent_error;
+        const bool source_exists = path_present(source, same_parent_error);
+        if (same_parent_error || !source_exists) {
+            return failure(same_parent_error ? status_for_error(same_parent_error)
+                                             : OperationStatus::InvalidRequest,
+                           OperationPhase::Preflight,
+                           source,
+                           "The selected item no longer exists.");
+        }
         return OperationResult{OperationStatus::Success,
                                OperationPhase::Complete,
                                source,
@@ -684,7 +706,7 @@ OperationResult OperationEngine::move_item(const std::filesystem::path &source,
     }
 
     error.clear();
-    std::filesystem::remove_all(source, error);
+    (void)std::filesystem::remove_all(source, error);
     if (error) {
         return failure(status_for_error(error),
                        OperationPhase::Execute,
