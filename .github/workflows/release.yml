@@ -1,0 +1,148 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+name: Publish release
+
+on:
+  workflow_run:
+    workflows: ["Verify"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-release-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      startsWith(github.event.workflow_run.head_commit.message, 'Release ')
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - name: Check out exact tested main commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install release dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config libgtk-4-dev dpkg-dev
+
+      - name: Verify exact current main and release commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --tags
+          head_commit=$(git rev-parse HEAD)
+          test "$head_commit" = "$EXPECTED_SHA"
+          current_main=$(git rev-parse origin/main)
+          if [[ "$current_main" != "$EXPECTED_SHA" ]]; then
+            printf 'Refusing to publish stale tested commit %s; current main is %s.\n' \
+              "$EXPECTED_SHA" "$current_main" >&2
+            exit 1
+          fi
+          version=$(tr -d '[:space:]' < VERSION)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          subject=$(git log -1 --format=%s "$head_commit")
+          if [[ "$subject" != "Release ${version}" && "$subject" != "Release ${version}:"* ]]; then
+            printf 'Release commit subject must begin with Release %s.\n' "$version" >&2
+            exit 1
+          fi
+
+      - name: Build and test release
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --parallel
+          ctest --test-dir build --output-on-failure
+
+      - name: Build Debian package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cpack --config build/CPackConfig.cmake -G DEB -B dist
+          version=$(tr -d '[:space:]' < VERSION)
+          mapfile -t packages < <(find dist -maxdepth 1 -type f -name '*.deb' -printf '%p\n')
+          if [[ ${#packages[@]} -ne 1 ]]; then
+            printf 'Expected exactly one Debian package, found %s.\n' "${#packages[@]}" >&2
+            exit 1
+          fi
+          deb=${packages[0]}
+          test "$(dpkg-deb -f "$deb" Package)" = "infiltrator-file-manager"
+          test "$(dpkg-deb -f "$deb" Version)" = "$version"
+          dependencies=$(dpkg-deb -f "$deb" Depends)
+          grep -Eq 'libgtk-4-1' <<<"$dependencies"
+          tmp=$(mktemp -d)
+          trap 'rm -rf "$tmp"' EXIT
+          dpkg-deb -x "$deb" "$tmp/root"
+          test -x "$tmp/root/usr/bin/infiltrator-file-manager"
+          test -f "$tmp/root/usr/share/applications/infiltrator-file-manager.desktop"
+          cp "$deb" "dist/infiltrator-file-manager_${version}_amd64.deb"
+          if [[ "$deb" != "dist/infiltrator-file-manager_${version}_amd64.deb" ]]; then
+            rm -f "$deb"
+          fi
+          cd dist
+          sha256sum "infiltrator-file-manager_${version}_amd64.deb" > SHA256SUMS
+
+      - name: Publish immutable GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --tags
+          head_commit=$(git rev-parse HEAD)
+          test "$head_commit" = "$EXPECTED_SHA"
+          version=$(tr -d '[:space:]' < VERSION)
+          tag="v${version}"
+          deb="dist/infiltrator-file-manager_${version}_amd64.deb"
+          sums="dist/SHA256SUMS"
+          test -f "$deb"
+          test -f "$sums"
+
+          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            tag_commit=$(git rev-list -n 1 "$tag")
+            if [[ "$tag_commit" != "$head_commit" ]]; then
+              printf 'Release tag %s points to %s instead of %s.\n' \
+                "$tag" "$tag_commit" "$head_commit" >&2
+              exit 1
+            fi
+          else
+            git tag "$tag" "$head_commit"
+            git push origin "$tag"
+          fi
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            printf 'Release %s already exists; refusing to mutate published assets.\n' "$tag" >&2
+            exit 1
+          fi
+
+          gh release create "$tag" "$deb" "$sums" \
+            --verify-tag \
+            --target "$head_commit" \
+            --title "Infiltrator File Manager ${version}" \
+            --notes "First downloadable Infiltrator File Manager build. This is the early read-only browsing tranche: navigation, asynchronous directory listing, native file launching, Infiltrator/Common styling, and the toolkit-neutral location model are present. Destructive file operations are intentionally not enabled yet." \
+            --latest
+
+          published_assets=$(gh release view "$tag" --json assets --jq '.assets[].name' | sort)
+          expected_assets=$(printf 'SHA256SUMS\ninfiltrator-file-manager_%s_amd64.deb\n' "$version" | sort)
+          if [[ "$published_assets" != "$expected_assets" ]]; then
+            printf 'Unexpected published asset set for %s.\n' "$tag" >&2
+            exit 1
+          fi
