@@ -62,6 +62,7 @@ add_library(infiltrator-files-core STATIC
 target_include_directories(infiltrator-files-core PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/core")
 target_compile_features(infiltrator-files-core PUBLIC cxx_std_20)
+target_link_libraries(infiltrator-files-core PUBLIC InfiltratrCommon::Common)
 
 add_executable(infiltrator-file-manager
     src/main.cpp
@@ -70,7 +71,6 @@ target_include_directories(infiltrator-file-manager PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(infiltrator-file-manager PRIVATE
     infiltrator-files-core
-    InfiltratrCommon::Portable
     PkgConfig::GTK4)
 
 foreach(target infiltrator-files-core infiltrator-file-manager)
