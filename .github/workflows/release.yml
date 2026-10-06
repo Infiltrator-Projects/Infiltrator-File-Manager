@@ -14,12 +14,43 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
+  gate:
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_branch == 'main' &&
-      startsWith(github.event.workflow_run.head_commit.message, 'Release ')
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      publish: ${{ steps.release_commit.outputs.publish }}
+    env:
+      EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - name: Check out exact tested commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 1
+          submodules: false
+
+      - name: Detect release commit
+        id: release_commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          version=$(tr -d '[:space:]' < VERSION)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          subject=$(git log -1 --format=%s HEAD)
+          if [[ "$subject" == "Release ${version}" || "$subject" == "Release ${version}:"* ]]; then
+            echo 'publish=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'publish=false' >> "$GITHUB_OUTPUT"
+          fi
+
+  publish:
+    needs: gate
+    if: needs.gate.outputs.publish == 'true'
     permissions:
       contents: write
     runs-on: ubuntu-24.04
@@ -137,7 +168,7 @@ jobs:
             --verify-tag \
             --target "$head_commit" \
             --title "Infiltrator File Manager ${version}" \
-            --notes "First downloadable Infiltrator File Manager build. This is the early read-only browsing tranche: navigation, asynchronous directory listing, native file launching, Infiltrator/Common styling, and the toolkit-neutral location model are present. Destructive file operations are intentionally not enabled yet." \
+            --notes "Infiltrator File Manager ${version}. See the repository README for the current implementation surface and release status." \
             --latest
 
           published_assets=$(gh release view "$tag" --json assets --jq '.assets[].name' | sort)
