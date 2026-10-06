@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "ui/file_manager_window.hpp"
+#include "ui/theme_controller.hpp"
 
 #include <gtk/gtk.h>
 
@@ -9,6 +10,7 @@ void on_activate(GtkApplication *application, gpointer user_data)
 {
     (void)user_data;
     auto *window = new infiltrator::files::FileManagerWindow(application);
+    new infiltrator::files::ThemeController(window->native_window());
     window->present();
 }
 
