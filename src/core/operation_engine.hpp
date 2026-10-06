@@ -39,7 +39,15 @@ class OperationEngine final {
 public:
     [[nodiscard]] OperationResult create_directory(const std::filesystem::path &parent,
                                                    std::string_view name) const;
+    [[nodiscard]] OperationResult rename_item(const std::filesystem::path &source,
+                                              std::string_view new_name) const;
+    [[nodiscard]] OperationResult copy_item(const std::filesystem::path &source,
+                                            const std::filesystem::path &destination_parent) const;
+    [[nodiscard]] OperationResult move_item(const std::filesystem::path &source,
+                                            const std::filesystem::path &destination_parent) const;
 
+    [[nodiscard]] static bool validate_item_name(std::string_view name,
+                                                 std::string *reason = nullptr);
     [[nodiscard]] static bool validate_directory_name(std::string_view name,
                                                       std::string *reason = nullptr);
     [[nodiscard]] static OperationStatus status_for_error(const std::error_code &error) noexcept;
