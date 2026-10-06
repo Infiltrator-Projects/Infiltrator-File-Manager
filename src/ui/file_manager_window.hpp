@@ -2,6 +2,7 @@
 #pragma once
 
 #include "../core/location.hpp"
+#include "create_folder_controller.hpp"
 
 #include <gtk/gtk.h>
 
@@ -21,6 +22,14 @@ public:
     FileManagerWindow &operator=(const FileManagerWindow &) = delete;
 
     void present();
+    void install_operation_surface()
+    {
+        if (operation_surface_installed_) {
+            return;
+        }
+        new CreateFolderController(GTK_WINDOW(window_), directory_list_, selection_, status_label_);
+        operation_surface_installed_ = true;
+    }
     [[nodiscard]] GtkWindow *native_window() const noexcept { return GTK_WINDOW(window_); }
 
 private:
@@ -58,6 +67,7 @@ private:
     GFile *current_location_{nullptr};
     std::vector<Location> history_;
     std::size_t history_index_{0};
+    bool operation_surface_installed_{false};
 };
 
 } // namespace infiltrator::files

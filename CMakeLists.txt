@@ -58,7 +58,8 @@ add_subdirectory("${INFILTRATR_COMMON_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/infiltr
 pkg_check_modules(GTK4 REQUIRED IMPORTED_TARGET gtk4>=4.10)
 
 add_library(infiltrator-files-core STATIC
-    src/core/location.cpp)
+    src/core/location.cpp
+    src/core/operation_engine.cpp)
 target_include_directories(infiltrator-files-core PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/core")
 target_compile_features(infiltrator-files-core PUBLIC cxx_std_20)
@@ -66,6 +67,7 @@ target_link_libraries(infiltrator-files-core PUBLIC InfiltratrCommon::Common)
 
 add_executable(infiltrator-file-manager
     src/main.cpp
+    src/ui/create_folder_controller.cpp
     src/ui/file_manager_window.cpp
     src/ui/theme_controller.cpp)
 target_include_directories(infiltrator-file-manager PRIVATE
@@ -85,6 +87,10 @@ if(BUILD_TESTING)
     add_executable(location-model-test tests/location_model_test.cpp)
     target_link_libraries(location-model-test PRIVATE infiltrator-files-core)
     add_test(NAME location-model COMMAND location-model-test)
+
+    add_executable(operation-engine-test tests/operation_engine_test.cpp)
+    target_link_libraries(operation-engine-test PRIVATE infiltrator-files-core)
+    add_test(NAME operation-engine COMMAND operation-engine-test)
 endif()
 
 install(TARGETS infiltrator-file-manager

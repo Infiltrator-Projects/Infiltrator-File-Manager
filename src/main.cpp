@@ -10,6 +10,7 @@ void on_activate(GtkApplication *application, gpointer user_data)
 {
     (void)user_data;
     auto *window = new infiltrator::files::FileManagerWindow(application);
+    window->install_operation_surface();
     new infiltrator::files::ThemeController(window->native_window());
     window->present();
 }
