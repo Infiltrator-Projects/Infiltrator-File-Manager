@@ -22,7 +22,7 @@ public:
     void present();
 
 private:
-    static void on_window_destroy(GtkWidget *widget, gpointer user_data);
+    static void on_window_finalized(gpointer user_data, GObject *where_object_was);
     static void on_back_clicked(GtkButton *button, gpointer user_data);
     static void on_forward_clicked(GtkButton *button, gpointer user_data);
     static void on_up_clicked(GtkButton *button, gpointer user_data);
