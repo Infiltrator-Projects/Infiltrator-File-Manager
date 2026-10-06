@@ -88,3 +88,16 @@ endif()
 
 install(TARGETS infiltrator-file-manager
     RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+install(FILES data/infiltrator-file-manager.desktop
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
+
+set(CPACK_PACKAGE_NAME "infiltrator-file-manager")
+set(CPACK_PACKAGE_VENDOR "Infiltrator Projects")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "InfiltratorOS file manager")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Infiltrator Projects")
+set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
+set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
+include(CPack)
