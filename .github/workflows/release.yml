@@ -84,6 +84,7 @@ jobs:
             exit 1
           fi
           deb=${packages[0]}
+          canonical="dist/infiltrator-file-manager_${version}_amd64.deb"
           test "$(dpkg-deb -f "$deb" Package)" = "infiltrator-file-manager"
           test "$(dpkg-deb -f "$deb" Version)" = "$version"
           dependencies=$(dpkg-deb -f "$deb" Depends)
@@ -93,9 +94,8 @@ jobs:
           dpkg-deb -x "$deb" "$tmp/root"
           test -x "$tmp/root/usr/bin/infiltrator-file-manager"
           test -f "$tmp/root/usr/share/applications/infiltrator-file-manager.desktop"
-          cp "$deb" "dist/infiltrator-file-manager_${version}_amd64.deb"
-          if [[ "$deb" != "dist/infiltrator-file-manager_${version}_amd64.deb" ]]; then
-            rm -f "$deb"
+          if [[ "$deb" != "$canonical" ]]; then
+            mv "$deb" "$canonical"
           fi
           cd dist
           sha256sum "infiltrator-file-manager_${version}_amd64.deb" > SHA256SUMS
