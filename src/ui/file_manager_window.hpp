@@ -21,6 +21,7 @@ public:
     FileManagerWindow &operator=(const FileManagerWindow &) = delete;
 
     void present();
+    [[nodiscard]] GtkWindow *native_window() const noexcept { return GTK_WINDOW(window_); }
 
 private:
     static void on_window_finalized(gpointer user_data, GObject *where_object_was);
