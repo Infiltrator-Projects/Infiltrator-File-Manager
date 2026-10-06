@@ -1,0 +1,372 @@
+# Infiltrator File Manager — Initial Architecture
+
+This document defines the initial architectural model derived from the project's design philosophy and October 2026 research review. It is intentionally pre-implementation. Performance measurements, prototypes and further research may change details before code architecture is frozen.
+
+## 1. Architectural boundary
+
+Infiltrator File Manager owns the user-facing model of files, locations, retrieval, operations and recoverability.
+
+It does **not** own filesystem allocation, persistent on-disk structures, filesystem transaction semantics or specialist disk administration. Those remain responsibilities of the operating system and filesystem.
+
+The architecture separates four kinds of truth:
+
+1. **filesystem truth** — the actual namespace, objects, metadata and supported storage semantics;
+2. **application model** — File Manager's current representation of locations, objects, capabilities and operations;
+3. **derived indexes** — search, semantic and activity/context indexes that can be discarded and rebuilt; and
+4. **presentation state** — windows, selection, sorting, layout, expansion and other UI state.
+
+Only the first two may govern file mutation. Derived indexes and presentation state never become authoritative storage.
+
+## 2. Layered model
+
+```text
+┌───────────────────────────────────────────────────────────────┐
+│ Presentation                                                 │
+│ browse / search / semantic / context / history / operations  │
+└───────────────────────────┬───────────────────────────────────┘
+                            ↓
+┌───────────────────────────────────────────────────────────────┐
+│ Application model                                             │
+│ Location • FileObject • Container • CapabilitySet            │
+│ SearchHit • HistoryEntry • ActivityContext • OperationState  │
+└───────────────────────────┬───────────────────────────────────┘
+                            ↓
+┌───────────────────────────────────────────────────────────────┐
+│ Deterministic operation engine                                │
+│ preflight • plan • execute • durability • verify • recover   │
+└───────────────────────────┬───────────────────────────────────┘
+                            ↓
+┌───────────────────────────┴───────────────────────────────────┐
+│ Platform/filesystem capability layer                          │
+│ standard OS APIs • generic capabilities • provider extensions│
+└──────────────┬───────────────────────────────┬────────────────┘
+               ↓                               ↓
+       ordinary filesystems             InfiltratorFS provider
+       remote locations                 qualified extra features
+
+Derived side systems:
+
+filesystem events ──→ exact/content index ──┐
+                                            ├─→ retrieval model
+filesystem events ──→ semantic/context index┘
+
+Both indexes are rebuildable and non-authoritative.
+```
+
+## 3. Core model
+
+The initial model should be expressed in toolkit-neutral concepts rather than GTK objects.
+
+### Location
+
+A browseable namespace endpoint or container context.
+
+Examples:
+
+- local directory;
+- mounted volume;
+- remote share/location;
+- trash;
+- search result space;
+- history view;
+- explicit collection; or
+- derived activity/context view.
+
+A derived location does not imply a new filesystem namespace.
+
+### FileObject
+
+Represents one logical item known to the application.
+
+Potential fields include:
+
+- current location/name;
+- object kind;
+- metadata and availability flags;
+- stable identity when available;
+- current capability set;
+- content type;
+- size/logical size/physical size where available;
+- timestamps;
+- integrity/history indicators where available; and
+- source/provider identity.
+
+Unknown and unavailable values remain distinct from zero/empty values.
+
+### CapabilitySet
+
+A per-location or per-object description of supported behaviour.
+
+Candidate capabilities include:
+
+- read/write;
+- atomic rename/replace;
+- trash/reversible deletion;
+- clone/reflink;
+- sparse preservation;
+- xattrs/named metadata;
+- stable object identity;
+- historical-version enumeration;
+- historical restore;
+- integrity status;
+- storage-intent hints;
+- durable publication guarantees; and
+- remote/offline semantics.
+
+The UI should branch primarily on capability, not on string comparisons such as `filesystem == "infiltratorfs"`.
+
+### HistoryEntry
+
+Represents a previous state or recoverable operation in a provider-neutral form.
+
+History sources may include:
+
+- filesystem-retained generations;
+- trash;
+- application operation journal;
+- platform versioning facilities; or
+- other qualified providers.
+
+The UI must show where a history item comes from and what restoration means.
+
+### ActivityContext
+
+A derived grouping of files related by user activity, explicit grouping, chronology or other explainable signals.
+
+ActivityContext is never filesystem truth and must not silently move files.
+
+## 4. Identity model
+
+Paths and object identity are deliberately separate.
+
+Preferred identity order:
+
+1. qualified persistent filesystem object identity, where exposed;
+2. a platform/filesystem stable identifier with documented lifetime;
+3. a compound weaker identity valid only inside a known mount/session; or
+4. path-based fallback.
+
+InfiltratorFS persistent 128-bit IDs can provide the strongest form when a stable public capability interface exists.
+
+Derived indexes must record the strength/scope of the identity they rely on. They must tolerate rename, move, remount, replacement and identity invalidation rather than assuming pathname permanence.
+
+## 5. Operation engine
+
+All mutating filesystem actions pass through one deterministic operation engine.
+
+A normal operation has the conceptual phases:
+
+```text
+request
+   ↓
+resolve objects/locations
+   ↓
+preflight capabilities + conflicts + permissions + space
+   ↓
+build explicit operation plan
+   ↓
+execute
+   ↓
+establish required durability where supported/required
+   ↓
+post-verify result
+   ↓
+publish final state + recovery/undo information
+```
+
+The engine owns:
+
+- copy;
+- move;
+- rename;
+- replace/overwrite;
+- create;
+- delete/trash;
+- restore;
+- batch operations; and
+- provider-backed clone/history operations.
+
+Semantic/AI systems may create candidate selections or proposed plans but cannot bypass the operation engine.
+
+### Failure states
+
+At minimum, operations distinguish:
+
+- success;
+- partial success;
+- cancelled cleanly;
+- cancelled with retained partial result;
+- permission failure;
+- source disappeared/changed;
+- destination conflict;
+- insufficient space;
+- destination disconnected;
+- unsupported capability;
+- durability could not be established; and
+- verification failure.
+
+The UI should not collapse these into a generic "something went wrong" state.
+
+## 6. Recoverability and journal
+
+File Manager should maintain a user-visible operation history sufficient to explain recent mutations and expose reversible actions when they genuinely exist.
+
+The operation journal is not a substitute for filesystem history. It records what File Manager attempted and established.
+
+A journal entry may include:
+
+- action and timestamp;
+- source/destination identities and paths;
+- capability path used (ordinary copy, reflink, atomic replace, trash, etc.);
+- result state;
+- verification state; and
+- an undo/restore token only where an actual reversible mechanism exists.
+
+The application must never manufacture an Undo button when no reliable reversal exists.
+
+## 7. Search architecture
+
+Search has independent layers:
+
+### Exact/native search
+
+Uses filenames, paths, metadata and optionally indexed content with deterministic query semantics.
+
+### Semantic search
+
+Uses a rebuildable local semantic index. It may index supported document content, metadata and derived context.
+
+Semantic results must preserve:
+
+- source object identity/path;
+- confidence/ranking information;
+- an explanation or provenance signal where practical; and
+- a route back to the actual filesystem object.
+
+Semantic search must degrade to unavailable without affecting ordinary browsing/search.
+
+### Context retrieval
+
+May combine explicit and derived relationships such as:
+
+- same folder;
+- recently used together;
+- same activity/project;
+- related content;
+- shared historical lineage; or
+- explicit collection membership.
+
+The system should distinguish inferred relationships from user-authored ones.
+
+## 8. InfiltratorFS capability provider
+
+The InfiltratorFS integration is an optional provider behind the same application model.
+
+It may expose qualified capabilities that generic OS APIs cannot represent strongly enough, for example:
+
+- persistent 128-bit object ID;
+- retained-generation enumeration;
+- object-level historical open/restore when implemented and qualified;
+- integrity status;
+- richer clone/shared-data information;
+- filesystem-specific durable-publication guarantees; and
+- versioned storage-intent hints.
+
+The provider must use a stable public interface. File Manager must not parse InfiltratorFS private metadata or on-disk structures.
+
+If the provider is missing or the filesystem is not InfiltratorFS, the same application model uses generic platform capabilities.
+
+## 9. UI execution model
+
+The GUI is first-paint oriented.
+
+Before the first visible frame, only work required to show a useful shell/current location should run synchronously.
+
+The following are asynchronous by default:
+
+- directory enrichment beyond minimum enumeration;
+- thumbnail generation;
+- content indexing;
+- semantic indexing;
+- network discovery;
+- remote metadata probes;
+- history enrichment;
+- integrity queries that may block;
+- related-item computation; and
+- large property aggregation.
+
+Results merge incrementally into visible models using stable identities/generations so late worker results cannot corrupt a newly selected location.
+
+A failed background subsystem must fail open: the normal file manager remains usable.
+
+## 10. Presentation model
+
+The production UI should be selected after prototyping, not inferred directly from current file managers.
+
+The architecture nevertheless assumes several information roles:
+
+- **primary browse/search canvas** — files and containers;
+- **navigation context** — hierarchy, history and locations;
+- **zero-layer contextual actions** — a restrained set of actions relevant now;
+- **detail/inspection surface** — progressively disclosed metadata/capabilities/history;
+- **operation surface** — progress, conflicts, errors and recovery; and
+- **retrieval mode** — exact and semantic search without losing browse context.
+
+UI concepts must map to the same underlying application model rather than implementing independent file logic per view.
+
+## 11. Security and privacy
+
+File content, paths, filenames, metadata, semantic vectors and activity relationships are private user information.
+
+Initial rules:
+
+- local indexing by default;
+- no network requirement for normal file operations;
+- least-privilege execution;
+- privilege elevation only for the narrow action that requires it;
+- clear boundary between browsing and destructive/admin actions;
+- provider outputs treated as untrusted until validated against contract; and
+- no direct semantic-agent filesystem mutation.
+
+## 12. Qualification model
+
+The file manager must be tested against real failure, not only correct local files.
+
+Qualification should eventually include:
+
+- enormous directories;
+- deep directory trees;
+- long valid UTF-8 names;
+- hard links and symlinks;
+- sparse files;
+- reflink-capable and non-reflink filesystems;
+- removable-media removal during enumeration and transfer;
+- remote filesystem latency/disconnect/reconnect;
+- permission changes during an operation;
+- source replacement/rename races;
+- low/free-space exhaustion;
+- partial copy/move recovery;
+- cancel at each operation phase;
+- history/restore correctness;
+- search-index corruption/rebuild;
+- semantic subsystem unavailable/corrupt;
+- mixed filesystems in one operation;
+- InfiltratorFS history/object identity integration; and
+- accessibility/keyboard-only workflows.
+
+The success path, failure path and recovery path are all part of the feature.
+
+## 13. Architecture questions deliberately left open
+
+The following must be decided through research/prototyping rather than assumption:
+
+- GTK3, GTK4 or another presentation framework for the initial Linux product;
+- exact C/C++ component boundaries;
+- exact local semantic embedding/index implementation;
+- whether activity contexts are automatic, explicit or hybrid;
+- the operation-journal persistence format;
+- cross-filesystem move recovery strategy;
+- remote filesystem abstraction boundaries;
+- plugin/extension model;
+- preview/thumbnail sandboxing; and
+- exact public InfiltratorFS capability API.
