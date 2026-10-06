@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Files
+Comment=Browse and manage files with Infiltrator File Manager
+Exec=infiltrator-file-manager
+Icon=system-file-manager
+Terminal=false
+Categories=System;FileTools;FileManager;
+Keywords=files;folders;filesystem;manager;
+StartupNotify=true
