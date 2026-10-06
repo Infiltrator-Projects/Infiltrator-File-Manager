@@ -2,7 +2,7 @@
 
 Infiltrator File Manager is a clean-sheet file-management project for InfiltratorOS.
 
-**Current source version:** 0.1.0  
+**Current source version:** 0.1.1  
 **Shared foundation:** exact Infiltratr Common 1.19.38 gitlink, linked through the full Common target on InfiltratorOS/POSIX  
 **Desktop implementation:** C++20 + GTK 4/GIO  
 **Status:** early implementation; read-only browsing tranche
@@ -52,7 +52,7 @@ The catalogue is intentionally broader than the current release. It is the produ
 
 Common's role is documented separately in [`docs/COMMON-INTEGRATION.md`](docs/COMMON-INTEGRATION.md). That ledger identifies which mechanics Files should inherit from Common, which semantics remain Files-owned, and which capabilities remain InfiltratorFS-owned.
 
-## Current 0.1.0 implementation
+## Current 0.1.1 implementation
 
 The initial executable is `infiltrator-file-manager`, presented to the user as **Files**.
 
@@ -67,6 +67,7 @@ It currently provides:
 - directory activation and launching files through the platform's registered default application;
 - a toolkit-neutral `Location` model and navigation history beneath the GTK presentation;
 - the canonical Infiltrator Day/Night/System design contract from pinned Common;
+- a persistent **Follow system / Day / Night** appearance control, with live GTK system-theme tracking when Follow system is selected;
 - the full `InfiltratrCommon::Common` build dependency on InfiltratorOS/POSIX, making Common's POSIX/state/I/O contracts available to the non-UI layers as they are introduced; and
 - a hosted build/test gate on every main-branch update.
 
@@ -87,7 +88,7 @@ ctest --test-dir build --output-on-failure
 ./build/infiltrator-file-manager
 ```
 
-The build rejects a missing, wrong-version or wrong-commit Infiltratr Common checkout. Version 0.1.0 is pinned to Common 1.19.38 at commit `04b5e219924ec0e65ef9d254c114fad4de0abd29`.
+The build rejects a missing, wrong-version or wrong-commit Infiltratr Common checkout. Version 0.1.1 is pinned to Common 1.19.38 at commit `04b5e219924ec0e65ef9d254c114fad4de0abd29`.
 
 ## Design documents
 
