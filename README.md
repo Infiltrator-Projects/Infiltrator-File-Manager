@@ -2,14 +2,14 @@
 
 Infiltrator File Manager is a clean-sheet file-management project for InfiltratorOS.
 
-**Current source version:** 0.1.2  
+**Current source version:** 0.1.3  
 **Shared foundation:** exact Infiltratr Common 1.19.38 gitlink, linked through the full Common target on InfiltratorOS/POSIX  
 **Desktop implementation:** C++20 + GTK 4/GIO  
-**Status:** early implementation; read-only browsing tranche with live appearance integration
+**Status:** early implementation; browsing foundation plus the first deterministic mutation operation
 
 The project does not exist to reproduce Nemo, Dolphin, Explorer, Finder or another existing file manager. Mature products, standards and current research are evidence. The project chooses the strongest justified mechanisms and owns its own interaction, operation and recovery semantics.
 
-The implementation has now started, but the architecture remains deliberately capable of changing while the early model and interaction contracts are being proven. The first tranche establishes a real, buildable browser without prematurely adding mutation, semantic indexing or filesystem-specific policy.
+The implementation has now started, but the architecture remains deliberately capable of changing while the early model and interaction contracts are being proven. The first tranches establish a real browser and the mutation boundary without prematurely adding complex copy/move semantics, semantic indexing or filesystem-specific policy.
 
 ## Design position
 
@@ -52,9 +52,9 @@ The catalogue is intentionally broader than the current release. It is the produ
 
 Common's role is documented separately in [`docs/COMMON-INTEGRATION.md`](docs/COMMON-INTEGRATION.md). That ledger identifies which mechanics Files should inherit from Common, which semantics remain Files-owned, and which capabilities remain InfiltratorFS-owned.
 
-## Current 0.1.2 implementation
+## Current 0.1.3 implementation
 
-The initial executable is `infiltrator-file-manager`, presented to the user as **Files**.
+The executable is `infiltrator-file-manager`, presented to the user as **Files**.
 
 It currently provides:
 
@@ -68,12 +68,17 @@ It currently provides:
 - a toolkit-neutral `Location` model and navigation history beneath the GTK presentation;
 - the canonical Infiltrator Day/Night/System design contract from pinned Common;
 - a persistent **Follow system / Day / Night** appearance control, with live GTK system-theme tracking when Follow system is selected;
+- the first deterministic mutation path: **New Folder**, available from the header action or `Ctrl+Shift+N` for native locations;
+- a toolkit-neutral operation engine for directory creation with explicit preflight, destination planning, execution, post-verification and typed result states;
+- distinct handling for invalid requests, destination conflicts, permission failures, read-only locations, execution failures and verification failures;
+- asynchronous execution of folder creation so filesystem work does not block the GTK main loop;
+- monitored refresh and automatic selection of the newly created folder when the current view still represents the operation destination;
 - the full `InfiltratrCommon::Common` build dependency on InfiltratorOS/POSIX, making Common's POSIX/state/I/O contracts available to the non-UI layers as they are introduced; and
 - a hosted build/test gate on every main-branch update.
 
-The current tranche deliberately has **no copy, move, rename, delete, overwrite or create operations**. Mutation will not be added ad hoc to UI callbacks. Those operations first require the deterministic operation engine described in the architecture: preflight, plan, execute, durability, verification and recoverable result state.
+Copy, move, rename, delete, overwrite and restore remain deliberately absent. They will be added through the same deterministic operation engine rather than as ad-hoc UI callbacks. Create Folder is the proving operation for that boundary.
 
-Semantic/context indexing and InfiltratorFS-specific capability providers are also deliberately absent from this first executable. Ordinary file-manager correctness comes first.
+Semantic/context indexing and InfiltratorFS-specific capability providers are also deliberately absent from this early executable. Ordinary file-manager correctness comes first.
 
 ## Build
 
@@ -88,7 +93,7 @@ ctest --test-dir build --output-on-failure
 ./build/infiltrator-file-manager
 ```
 
-The build rejects a missing, wrong-version or wrong-commit Infiltratr Common checkout. Version 0.1.2 is pinned to Common 1.19.38 at commit `04b5e219924ec0e65ef9d254c114fad4de0abd29`.
+The build rejects a missing, wrong-version or wrong-commit Infiltratr Common checkout. Version 0.1.3 is pinned to Common 1.19.38 at commit `04b5e219924ec0e65ef9d254c114fad4de0abd29`.
 
 ## Design documents
 
