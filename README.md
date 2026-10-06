@@ -5,7 +5,7 @@ Infiltrator File Manager is a clean-sheet file-management project for Infiltrato
 **Current source version:** 0.1.1  
 **Shared foundation:** exact Infiltratr Common 1.19.38 gitlink, linked through the full Common target on InfiltratorOS/POSIX  
 **Desktop implementation:** C++20 + GTK 4/GIO  
-**Status:** early implementation; read-only browsing tranche
+**Status:** early implementation; read-only browsing tranche with live appearance integration
 
 The project does not exist to reproduce Nemo, Dolphin, Explorer, Finder or another existing file manager. Mature products, standards and current research are evidence. The project chooses the strongest justified mechanisms and owns its own interaction, operation and recovery semantics.
 
