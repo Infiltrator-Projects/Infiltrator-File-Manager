@@ -2,6 +2,7 @@
 #include "item_operation_controller.hpp"
 
 #include "../core/operation_engine.hpp"
+#include "../core/recovery_operation_engine.hpp"
 
 #include <memory>
 #include <string>
@@ -26,6 +27,10 @@ const char *busy_text(const int kind)
         return "Copying item…";
     case 2:
         return "Moving item…";
+    case 3:
+        return "Replacing item by copy…";
+    case 4:
+        return "Replacing item by move…";
     default:
         return "Working…";
     }
@@ -411,6 +416,74 @@ void ItemOperationController::on_destination_chosen(GObject *source_object,
     g_object_unref(held_window);
 }
 
+void ItemOperationController::prompt_replace(const Kind completed_kind,
+                                             const std::string &source_path,
+                                             const std::string &destination_parent,
+                                             const std::string &detail)
+{
+    if (window_ == nullptr || chooser_busy_ || source_path.empty() || destination_parent.empty()) {
+        return;
+    }
+
+    chooser_busy_ = true;
+    pending_replace_kind_ = completed_kind == Kind::Move ? Kind::ReplaceMove : Kind::ReplaceCopy;
+    pending_replace_source_path_ = source_path;
+    pending_replace_destination_parent_ = destination_parent;
+    update_action_state();
+
+    GtkAlertDialog *dialog = gtk_alert_dialog_new("Replace existing item?");
+    const std::string explanation = detail +
+        " Files will stage the existing destination first and restore it if replacement fails before the new result is verified.";
+    gtk_alert_dialog_set_detail(dialog, explanation.c_str());
+    const char *buttons[] = {"Cancel", "Replace", nullptr};
+    gtk_alert_dialog_set_buttons(dialog, buttons);
+    gtk_alert_dialog_set_cancel_button(dialog, 0);
+    gtk_alert_dialog_set_default_button(dialog, 1);
+
+    g_object_ref(window_);
+    gtk_alert_dialog_choose(dialog,
+                            window_,
+                            nullptr,
+                            &ItemOperationController::on_replace_chosen,
+                            this);
+    g_object_unref(dialog);
+}
+
+void ItemOperationController::on_replace_chosen(GObject *source_object,
+                                                 GAsyncResult *result,
+                                                 gpointer user_data)
+{
+    auto *self = static_cast<ItemOperationController *>(user_data);
+    GtkWindow *held_window = self->window_;
+
+    GError *error = nullptr;
+    const int choice = gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(source_object), result, &error);
+    self->chooser_busy_ = false;
+
+    const Kind kind = self->pending_replace_kind_;
+    const std::string source_path = self->pending_replace_source_path_;
+    const std::string destination_parent = self->pending_replace_destination_parent_;
+    self->pending_replace_source_path_.clear();
+    self->pending_replace_destination_parent_.clear();
+
+    if (error != nullptr) {
+        if (!g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED)) {
+            self->show_alert("Replace", error->message);
+        }
+        g_error_free(error);
+        self->update_action_state();
+        g_object_unref(held_window);
+        return;
+    }
+
+    if (choice == 1) {
+        self->start_operation(kind, source_path, destination_parent, {});
+    } else {
+        self->update_action_state();
+    }
+    g_object_unref(held_window);
+}
+
 void ItemOperationController::start_operation(const Kind kind,
                                               const std::string &source_path,
                                               const std::string &destination_parent,
@@ -446,6 +519,7 @@ void ItemOperationController::on_operation_thread(GTask *task,
     (void)cancellable;
     const auto *data = static_cast<const ItemOperationTaskData *>(task_data);
     OperationEngine engine;
+    RecoveryOperationEngine recovery;
 
     OperationResult operation;
     switch (static_cast<Kind>(data->kind)) {
@@ -457,6 +531,12 @@ void ItemOperationController::on_operation_thread(GTask *task,
         break;
     case Kind::Move:
         operation = engine.move_item(data->source_path, data->destination_parent);
+        break;
+    case Kind::ReplaceCopy:
+        operation = recovery.replace_copy(data->source_path, data->destination_parent);
+        break;
+    case Kind::ReplaceMove:
+        operation = recovery.replace_move(data->source_path, data->destination_parent);
         break;
     }
 
@@ -474,6 +554,14 @@ void ItemOperationController::on_operation_finished(GObject *source_object,
     auto *self = static_cast<ItemOperationController *>(user_data);
     GTask *task = G_TASK(result);
 
+    const auto *task_data = static_cast<const ItemOperationTaskData *>(g_task_get_task_data(task));
+    const Kind completed_kind = task_data != nullptr
+                                    ? static_cast<Kind>(task_data->kind)
+                                    : Kind::Rename;
+    const std::string source_path = task_data != nullptr ? task_data->source_path : std::string{};
+    const std::string destination_parent =
+        task_data != nullptr ? task_data->destination_parent : std::string{};
+
     GError *error = nullptr;
     std::unique_ptr<OperationResult> operation(
         static_cast<OperationResult *>(g_task_propagate_pointer(task, &error)));
@@ -489,6 +577,18 @@ void ItemOperationController::on_operation_finished(GObject *source_object,
     }
     if (!operation) {
         self->show_alert("File operation", "The operation did not return a result.");
+        return;
+    }
+
+    if (operation->status == OperationStatus::DestinationConflict &&
+        (completed_kind == Kind::Copy || completed_kind == Kind::Move)) {
+        if (self->status_label_ != nullptr) {
+            gtk_label_set_text(GTK_LABEL(self->status_label_), operation->message.c_str());
+        }
+        self->prompt_replace(completed_kind,
+                             source_path,
+                             destination_parent,
+                             operation->message);
         return;
     }
 
