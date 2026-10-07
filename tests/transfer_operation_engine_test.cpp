@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "transfer_operation_engine.hpp"
 
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -38,21 +39,39 @@ int main()
         return 1;
     }
 
+    std::error_code metadata_error;
+    const auto expected_permissions = fs::perms::owner_read | fs::perms::owner_write |
+                                      fs::perms::owner_exec | fs::perms::group_read;
+    fs::permissions(source, expected_permissions, fs::perm_options::replace, metadata_error);
+    const auto expected_time = fs::file_time_type::clock::now() - std::chrono::hours(2);
+    fs::last_write_time(source, expected_time, metadata_error);
+    if (metadata_error) {
+        fs::remove_all(root, cleanup_error);
+        return 2;
+    }
+
     TransferControl first_control;
     const auto first = engine.copy_item(source,
                                         root / "destination",
                                         ConflictPolicy::Fail,
                                         &first_control);
-    if (!first.ok() || !first.changed || !fs::exists(root / "destination" / "report.txt")) {
+    const fs::path first_destination = root / "destination" / "report.txt";
+    if (!first.ok() || !first.changed || !fs::exists(first_destination)) {
         fs::remove_all(root, cleanup_error);
-        return 2;
+        return 3;
     }
     const auto first_progress = first_control.progress();
     if (first_progress.bytes_total == 0U ||
         first_progress.bytes_done != first_progress.bytes_total ||
         first_progress.items_done != first_progress.items_total) {
         fs::remove_all(root, cleanup_error);
-        return 3;
+        return 4;
+    }
+    if (fs::status(first_destination, metadata_error).permissions() != expected_permissions ||
+        metadata_error || fs::last_write_time(first_destination, metadata_error) != expected_time ||
+        metadata_error) {
+        fs::remove_all(root, cleanup_error);
+        return 5;
     }
 
     const auto conflict = engine.copy_item(source,
@@ -60,7 +79,7 @@ int main()
                                            ConflictPolicy::Fail);
     if (conflict.status != OperationStatus::DestinationConflict || conflict.changed) {
         fs::remove_all(root, cleanup_error);
-        return 4;
+        return 6;
     }
 
     const auto skipped = engine.copy_item(source,
@@ -68,7 +87,7 @@ int main()
                                           ConflictPolicy::Skip);
     if (!skipped.ok() || skipped.changed) {
         fs::remove_all(root, cleanup_error);
-        return 5;
+        return 7;
     }
 
     const auto kept = engine.copy_item(source,
@@ -78,7 +97,7 @@ int main()
         kept.destination.filename() != "report (copy).txt" ||
         !fs::exists(kept.destination)) {
         fs::remove_all(root, cleanup_error);
-        return 6;
+        return 8;
     }
 
     const auto kept_again = engine.copy_item(source,
@@ -88,7 +107,7 @@ int main()
         kept_again.destination.filename() != "report (copy 2).txt" ||
         !fs::exists(kept_again.destination)) {
         fs::remove_all(root, cleanup_error);
-        return 7;
+        return 9;
     }
 
     TransferControl cancelled_control;
@@ -101,41 +120,56 @@ int main()
     if (cancelled.status != OperationStatus::Cancelled || cancelled.changed ||
         fs::exists(root / "cancel-destination" / "report.txt")) {
         fs::remove_all(root, cleanup_error);
-        return 8;
+        return 10;
     }
 
     const fs::path tree = root / "tree";
     fs::create_directories(tree / "nested");
     if (!write_text(tree / "nested" / "data.bin", "tree payload\n")) {
         fs::remove_all(root, cleanup_error);
-        return 9;
+        return 11;
     }
+    const auto nested_permissions = fs::perms::owner_all | fs::perms::group_read | fs::perms::group_exec;
+    fs::permissions(tree / "nested", nested_permissions, fs::perm_options::replace, metadata_error);
+    const auto nested_time = fs::file_time_type::clock::now() - std::chrono::hours(4);
+    fs::last_write_time(tree / "nested", nested_time, metadata_error);
+    if (metadata_error) {
+        fs::remove_all(root, cleanup_error);
+        return 12;
+    }
+
     fs::create_directories(root / "tree-destination");
     TransferControl tree_control;
     const auto tree_copy = engine.copy_item(tree,
                                             root / "tree-destination",
                                             ConflictPolicy::Fail,
                                             &tree_control);
-    if (!tree_copy.ok() ||
-        !fs::is_regular_file(root / "tree-destination" / "tree" / "nested" / "data.bin")) {
+    const fs::path copied_nested = root / "tree-destination" / "tree" / "nested";
+    if (!tree_copy.ok() || !fs::is_regular_file(copied_nested / "data.bin")) {
         fs::remove_all(root, cleanup_error);
-        return 10;
+        return 13;
     }
     const auto tree_progress = tree_control.progress();
     if (tree_progress.items_total < 3U || tree_progress.items_done != tree_progress.items_total) {
         fs::remove_all(root, cleanup_error);
-        return 11;
+        return 14;
+    }
+    if (fs::status(copied_nested, metadata_error).permissions() != nested_permissions ||
+        metadata_error || fs::last_write_time(copied_nested, metadata_error) != nested_time ||
+        metadata_error) {
+        fs::remove_all(root, cleanup_error);
+        return 15;
     }
 
     const fs::path movable = root / "movable.txt";
     if (!write_text(movable, "move payload\n")) {
         fs::remove_all(root, cleanup_error);
-        return 12;
+        return 16;
     }
     fs::create_directories(root / "move-destination");
     if (!write_text(root / "move-destination" / "movable.txt", "occupied\n")) {
         fs::remove_all(root, cleanup_error);
-        return 13;
+        return 17;
     }
     const auto moved = engine.move_item(movable,
                                         root / "move-destination",
@@ -144,7 +178,7 @@ int main()
         moved.destination.filename() != "movable (copy).txt" ||
         !fs::exists(moved.destination)) {
         fs::remove_all(root, cleanup_error);
-        return 14;
+        return 18;
     }
 
     fs::remove_all(root, cleanup_error);
