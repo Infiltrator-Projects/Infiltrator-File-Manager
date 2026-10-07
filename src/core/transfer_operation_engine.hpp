@@ -33,12 +33,12 @@ public:
 
     [[nodiscard]] TransferProgress progress() const noexcept;
 
-private:
-    friend class TransferOperationEngine;
+    // Progress-reporting contract used by the transfer implementation.
     void set_total(std::uintmax_t bytes, std::uintmax_t items) noexcept;
     void add_bytes(std::uintmax_t bytes) noexcept;
     void add_item() noexcept;
 
+private:
     std::atomic_bool cancelled_{false};
     mutable std::mutex progress_mutex_;
     TransferProgress progress_{};
