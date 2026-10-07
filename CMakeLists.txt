@@ -56,18 +56,23 @@ set(INFILTRATR_COMMON_WARNINGS_AS_ERRORS ON CACHE BOOL "" FORCE)
 add_subdirectory("${INFILTRATR_COMMON_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/infiltratr-common" EXCLUDE_FROM_ALL)
 
 pkg_check_modules(GTK4 REQUIRED IMPORTED_TARGET gtk4>=4.10)
+pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-2.0)
 
 add_library(infiltrator-files-core STATIC
     src/core/location.cpp
-    src/core/operation_engine.cpp)
+    src/core/operation_engine.cpp
+    src/core/recovery_operation_engine.cpp)
 target_include_directories(infiltrator-files-core PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/core")
 target_compile_features(infiltrator-files-core PUBLIC cxx_std_20)
-target_link_libraries(infiltrator-files-core PUBLIC InfiltratrCommon::Common)
+target_link_libraries(infiltrator-files-core PUBLIC
+    InfiltratrCommon::Common
+    PkgConfig::GIO)
 
 add_executable(infiltrator-file-manager
     src/main.cpp
     src/ui/create_folder_controller.cpp
+    src/ui/destructive_operation_controller.cpp
     src/ui/file_manager_window.cpp
     src/ui/item_operation_controller.cpp
     src/ui/theme_controller.cpp)
@@ -92,6 +97,10 @@ if(BUILD_TESTING)
     add_executable(operation-engine-test tests/operation_engine_test.cpp)
     target_link_libraries(operation-engine-test PRIVATE infiltrator-files-core)
     add_test(NAME operation-engine COMMAND operation-engine-test)
+
+    add_executable(recovery-operation-engine-test tests/recovery_operation_engine_test.cpp)
+    target_link_libraries(recovery-operation-engine-test PRIVATE infiltrator-files-core)
+    add_test(NAME recovery-operation-engine COMMAND recovery-operation-engine-test)
 endif()
 
 install(TARGETS infiltrator-file-manager
