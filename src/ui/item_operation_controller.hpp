@@ -24,6 +24,8 @@ private:
         Rename,
         Copy,
         Move,
+        ReplaceCopy,
+        ReplaceMove,
     };
 
     static void on_window_finalized(gpointer user_data, GObject *where_object_was);
@@ -49,6 +51,9 @@ private:
     static void on_destination_chosen(GObject *source_object,
                                       GAsyncResult *result,
                                       gpointer user_data);
+    static void on_replace_chosen(GObject *source_object,
+                                  GAsyncResult *result,
+                                  gpointer user_data);
     static void on_operation_thread(GTask *task,
                                     gpointer source_object,
                                     gpointer task_data,
@@ -60,6 +65,10 @@ private:
     void show_rename_dialog();
     void submit_rename();
     void choose_destination(Kind kind);
+    void prompt_replace(Kind completed_kind,
+                        const std::string &source_path,
+                        const std::string &destination_parent,
+                        const std::string &detail);
     void start_operation(Kind kind,
                          const std::string &source_path,
                          const std::string &destination_parent,
@@ -90,9 +99,12 @@ private:
     bool busy_{false};
     bool chooser_busy_{false};
     Kind chooser_kind_{Kind::Copy};
+    Kind pending_replace_kind_{Kind::Copy};
     std::string chooser_source_path_;
     std::string rename_source_path_;
     std::string pending_selection_name_;
+    std::string pending_replace_source_path_;
+    std::string pending_replace_destination_parent_;
 };
 
 } // namespace infiltrator::files
