@@ -3,11 +3,21 @@
 
 #include "operation_engine.hpp"
 
+#include <cstdint>
 #include <filesystem>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace infiltrator::files {
+
+struct InterruptedOperation {
+    std::uint64_t started_millis{0};
+    std::string operation_id;
+    std::string kind;
+    std::string source;
+    std::string destination;
+};
 
 class OperationJournal final {
 public:
@@ -20,12 +30,16 @@ public:
                               std::string_view kind,
                               const OperationResult &result) const;
 
+    [[nodiscard]] std::vector<InterruptedOperation> interrupted_operations() const;
+    [[nodiscard]] bool mark_interrupted(const InterruptedOperation &operation) const;
+
     [[nodiscard]] const std::filesystem::path &path() const noexcept { return path_; }
     [[nodiscard]] static std::filesystem::path default_path();
 
 private:
     [[nodiscard]] bool append_line(const std::string &line) const;
     [[nodiscard]] static std::string escape(std::string_view value);
+    [[nodiscard]] static std::string unescape(std::string_view value);
 
     std::filesystem::path path_;
 };
