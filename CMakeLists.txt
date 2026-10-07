@@ -59,6 +59,7 @@ pkg_check_modules(GTK4 REQUIRED IMPORTED_TARGET gtk4>=4.10)
 pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-2.0)
 
 add_library(infiltrator-files-core STATIC
+    src/core/batch_transfer_engine.cpp
     src/core/location.cpp
     src/core/operation_engine.cpp
     src/core/operation_journal.cpp
@@ -73,10 +74,12 @@ target_link_libraries(infiltrator-files-core PUBLIC
 
 add_executable(infiltrator-file-manager
     src/main.cpp
+    src/ui/batch_item_operation_controller.cpp
     src/ui/create_folder_controller.cpp
     src/ui/destructive_operation_controller.cpp
     src/ui/file_manager_window.cpp
     src/ui/item_operation_controller.cpp
+    src/ui/journal_recovery_controller.cpp
     src/ui/theme_controller.cpp)
 target_include_directories(infiltrator-file-manager PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src")
@@ -107,6 +110,10 @@ if(BUILD_TESTING)
     add_executable(transfer-operation-engine-test tests/transfer_operation_engine_test.cpp)
     target_link_libraries(transfer-operation-engine-test PRIVATE infiltrator-files-core)
     add_test(NAME transfer-operation-engine COMMAND transfer-operation-engine-test)
+
+    add_executable(batch-transfer-engine-test tests/batch_transfer_engine_test.cpp)
+    target_link_libraries(batch-transfer-engine-test PRIVATE infiltrator-files-core)
+    add_test(NAME batch-transfer-engine COMMAND batch-transfer-engine-test)
 
     add_executable(operation-journal-test tests/operation_journal_test.cpp)
     target_link_libraries(operation-journal-test PRIVATE infiltrator-files-core)
