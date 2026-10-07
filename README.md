@@ -2,10 +2,10 @@
 
 Infiltrator File Manager is a clean-sheet file-management project for InfiltratorOS.
 
-**Current source version:** 0.1.6  
+**Current source version:** 0.1.7  
 **Shared foundation:** exact Infiltratr Common 1.19.38 gitlink, linked through the full Common target on InfiltratorOS/POSIX  
 **Desktop implementation:** C++20 + GTK 4/GIO  
-**Status:** early implementation; deterministic browsing and mutation foundation with recoverable conflicts, transfer progress/cancellation and durable operation journalling
+**Status:** early implementation; deterministic browsing and mutation foundation with multi-selection batch transfer, interruption inspection and verified metadata preservation
 
 The project does not exist to reproduce Nemo, Dolphin, Explorer, Finder or another existing file manager. Mature products, standards and current research are evidence. The project chooses the strongest justified mechanisms and owns its own interaction, operation and recovery semantics.
 
@@ -52,7 +52,7 @@ The catalogue is intentionally broader than the current release. It is the produ
 
 Common's role is documented separately in [`docs/COMMON-INTEGRATION.md`](docs/COMMON-INTEGRATION.md). That ledger identifies which mechanics Files should inherit from Common, which semantics remain Files-owned, and which capabilities remain InfiltratorFS-owned.
 
-## Current 0.1.6 implementation
+## Current 0.1.7 implementation
 
 The executable is `infiltrator-file-manager`, presented to the user as **Files**.
 
@@ -68,36 +68,51 @@ It currently provides:
 - a toolkit-neutral `Location` model and navigation history beneath the GTK presentation;
 - the canonical Infiltrator Day/Night/System design contract from pinned Common;
 - a persistent **Follow system / Day / Night** appearance control, with live GTK system-theme tracking when Follow system is selected;
+- a real GTK multi-selection model for selecting more than one directory item while preserving the existing single-item action contract when exactly one item is selected;
 - deterministic **New Folder**, available from the header action or `Ctrl+Shift+N` for native locations;
-- deterministic **Rename**, available from the selected-item Actions menu or `F2`;
-- deterministic **Copy to…** and **Move to…**, using a native folder picker for the destination;
-- explicit destination-conflict choices for **Skip**, **Keep Both** and **Replace** rather than implicit overwrite behaviour;
+- deterministic **Rename**, available from the selected-item Actions menu or `F2` when exactly one item is selected;
+- deterministic single-item **Copy to…** and **Move to…**, using a native folder picker for the destination;
+- isolated multi-item **Copy selected to…** and **Move selected to…** actions rather than expanding the proven single-item controller into a second state machine;
+- full-batch collision preflight before mutation when no batch conflict policy has yet been chosen, so a detected destination conflict does not allow earlier non-conflicting items to be silently transferred first;
+- compatible batch-conflict choices for **Skip Conflicts**, **Keep Both** and **Replace Conflicts**, with one selected policy applied consistently to conflicts in that batch;
+- per-item durable START/END journal records inside batch operations, so interrupted work remains attributable to individual source/destination mutations;
+- aggregate byte/item progress and safe-boundary cancellation for multi-item Copy/Move batches;
+- explicit single-item destination-conflict choices for **Skip**, **Keep Both** and **Replace** rather than implicit overwrite behaviour;
 - deterministic Keep Both naming such as `name (copy).ext`, `name (copy 2).ext` and subsequent unique names while preserving file extensions;
 - explicit **Replace** handling that stages the existing destination rather than deleting it first;
 - replacement staging that verifies the replacement, restores the previous destination on a safe failure path and retains staged data rather than guessing after an uncertain move;
 - same-filesystem moves through filesystem rename semantics, with copy-then-remove fallback for cross-volume moves;
 - recursive directory transfer with symbolic links preserved as links;
-- byte and item progress for Copy/Move transfers, surfaced in the header without blocking the GTK main loop;
+- ordinary copy and cross-volume move transfer paths that preserve regular-file and directory permissions and modification timestamps when the destination permits them;
+- metadata preservation applied to directories after their children are written so directory modification times are not immediately destroyed by the copy itself;
+- explicit verification failure when copied contents exist but supported permission/timestamp metadata could not be preserved, rather than claiming perfect preservation;
+- byte and item progress for single-item Copy/Move transfers, surfaced in the header without blocking the GTK main loop;
 - explicit transfer cancellation, checked during chunked file copy and directory traversal, with partial copy destinations removed where cleanup is safe;
 - cross-volume move cancellation before source removal so cancellation does not silently discard the source;
-- deterministic **Move to Trash** for native items, available from the Trash action and the `Delete` key;
+- deterministic **Move to Trash** for one selected native item, available from the Trash action and the `Delete` key;
 - **Restore** from the Trash namespace to the original local path when the platform exposes the original location;
 - explicit restore-collision handling with staged replacement rather than deleting the existing destination first;
 - explicit **Delete Permanently…**, guarded by a confirmation dialog and available separately from recoverable Trash removal; `Shift+Delete` invokes the permanent path directly;
 - a toolkit-neutral ordinary operation engine with explicit preflight, destination planning, execution, post-verification and typed result states;
-- a dedicated transfer operation layer for conflict policy, progress accounting and cancellation rather than enlarging the ordinary operation engine;
+- a dedicated transfer operation layer for conflict policy, progress accounting, cancellation and qualified metadata preservation rather than enlarging the ordinary operation engine;
+- a separate batch-transfer engine that owns multi-source planning and policy while reusing the qualified single-item transfer/recovery layers;
 - a separate recovery/destructive operation layer for replacement rollback, Trash, restoration and permanent deletion so destructive policy does not inflate the ordinary operation engine;
 - an fsync-backed durable operation journal at the user's XDG state location, with a persisted START record before mutation and END record after the operation result;
-- fail-closed journalling for New Folder, Rename, Copy, Move, Keep Both, Replace, Trash, Restore and Permanent Delete: if the START record cannot be persisted, the mutation is not started;
+- fail-closed journalling for New Folder, Rename, Copy, Move, Keep Both, Replace, Trash, Restore, Permanent Delete and each item in a batch: if the START record cannot be persisted, that mutation is not started;
+- startup inspection of journal START records with no matching END from a previous Files session;
+- conservative interrupted-operation closure as **verification failure**, never inferred success, while retaining the exact operation kind/source/destination for inspection;
+- an explicit warning/inspection surface when interrupted operations are found, including notification if the recovery END itself cannot be persisted;
 - journal completion failures surfaced as verification problems instead of silently inventing a durable completed state;
 - distinct handling for invalid requests, destination conflicts, permission failures, read-only locations, cancellation, execution failures and verification failures;
 - asynchronous execution of mutation work so filesystem operations do not block the GTK main loop;
-- monitored refresh and automatic selection of newly created, renamed, copied or moved items when their result appears in the current view;
-- separate creation, item-operation and destructive-operation UI controllers so mutation interaction does not accumulate inside `FileManagerWindow`;
+- monitored refresh and automatic selection of newly created, renamed, copied or moved single items when their result appears in the current view;
+- separate creation, single-item operation, batch operation, destructive/recovery, journal-inspection and theme controllers so interaction policy does not accumulate inside `FileManagerWindow`;
 - the full `InfiltratrCommon::Common` build dependency on InfiltratorOS/POSIX, making Common's POSIX/state/I/O contracts available to the non-UI layers as they are introduced; and
-- a hosted build/test gate on every main-branch update, including transfer conflict/progress/cancellation and durable-journal qualification.
+- a hosted build/test gate on every main-branch update, including batch preflight/policy/progress/cancellation, interrupted-journal recovery and permission/timestamp preservation qualification.
 
-The next operation work is multi-selection and compatible batch-conflict policy, operation-log recovery/inspection after interrupted work, and broader metadata-preservation semantics for transfers. Those remain explicit future work rather than being simulated by the single-item path.
+Metadata preservation is deliberately honest in 0.1.7: permissions and modification timestamps are qualified for ordinary copy/cross-volume transfer paths, while ownership, ACLs, extended attributes, sparse-file preservation and symlink metadata remain future capability work. Multi-selection batch Copy/Move is present; destructive batch Trash/Delete is not yet claimed.
+
+The next implementation work moves into the richer file/object/capability model, mounted/removable volume discovery and remote-location/provider capability handling. Those are the next architecture layer rather than more ad-hoc mutation controls.
 
 Semantic/context indexing and InfiltratorFS-specific capability providers are also deliberately absent from this early executable. Ordinary file-manager correctness comes first.
 
@@ -114,7 +129,7 @@ ctest --test-dir build --output-on-failure
 ./build/infiltrator-file-manager
 ```
 
-The build rejects a missing, wrong-version or wrong-commit Infiltratr Common checkout. Version 0.1.6 is pinned to Common 1.19.38 at commit `04b5e219924ec0e65ef9d254c114fad4de0abd29`.
+The build rejects a missing, wrong-version or wrong-commit Infiltratr Common checkout. Version 0.1.7 is pinned to Common 1.19.38 at commit `04b5e219924ec0e65ef9d254c114fad4de0abd29`.
 
 ## Design documents
 
