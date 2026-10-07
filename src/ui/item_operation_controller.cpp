@@ -2,10 +2,14 @@
 #include "item_operation_controller.hpp"
 
 #include "../core/operation_engine.hpp"
+#include "../core/operation_journal.hpp"
 #include "../core/recovery_operation_engine.hpp"
+#include "../core/transfer_operation_engine.hpp"
 
+#include <algorithm>
 #include <memory>
 #include <string>
+#include <utility>
 
 namespace infiltrator::files {
 
@@ -16,6 +20,8 @@ struct ItemOperationTaskData {
     std::string source_path;
     std::string destination_parent;
     std::string new_name;
+    std::string journal_id;
+    std::shared_ptr<TransferControl> control;
 };
 
 const char *busy_text(const int kind)
@@ -28,8 +34,12 @@ const char *busy_text(const int kind)
     case 2:
         return "Moving item…";
     case 3:
-        return "Replacing item by copy…";
+        return "Copying item with a new name…";
     case 4:
+        return "Moving item with a new name…";
+    case 5:
+        return "Replacing item by copy…";
+    case 6:
         return "Replacing item by move…";
     default:
         return "Working…";
@@ -55,8 +65,7 @@ ItemOperationController::ItemOperationController(GtkWindow *window,
     GtkWidget *titlebar = gtk_window_get_titlebar(window_);
     if (GTK_IS_HEADER_BAR(titlebar)) {
         menu_button_ = gtk_menu_button_new();
-        GtkWidget *menu_label = gtk_label_new("Actions");
-        gtk_menu_button_set_child(GTK_MENU_BUTTON(menu_button_), menu_label);
+        gtk_menu_button_set_child(GTK_MENU_BUTTON(menu_button_), gtk_label_new("Actions"));
         gtk_widget_set_tooltip_text(menu_button_, "Selected item actions");
 
         popover_ = gtk_popover_new();
@@ -85,6 +94,19 @@ ItemOperationController::ItemOperationController(GtkWindow *window,
         gtk_popover_set_child(GTK_POPOVER(popover_), box);
         gtk_menu_button_set_popover(GTK_MENU_BUTTON(menu_button_), popover_);
         gtk_header_bar_pack_end(GTK_HEADER_BAR(titlebar), menu_button_);
+
+        operation_box_ = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+        progress_bar_ = gtk_progress_bar_new();
+        gtk_widget_set_size_request(progress_bar_, 150, -1);
+        gtk_widget_set_tooltip_text(progress_bar_, "File operation progress");
+        cancel_operation_button_ = gtk_button_new_from_icon_name("process-stop-symbolic");
+        gtk_widget_set_tooltip_text(cancel_operation_button_, "Cancel at the next safe boundary");
+        gtk_box_append(GTK_BOX(operation_box_), progress_bar_);
+        gtk_box_append(GTK_BOX(operation_box_), cancel_operation_button_);
+        gtk_widget_set_visible(operation_box_, FALSE);
+        gtk_header_bar_pack_end(GTK_HEADER_BAR(titlebar), operation_box_);
+        g_signal_connect(cancel_operation_button_, "clicked",
+                         G_CALLBACK(&ItemOperationController::on_cancel_operation_clicked), this);
     }
 
     GtkEventController *keys = gtk_event_controller_key_new();
@@ -104,12 +126,17 @@ ItemOperationController::ItemOperationController(GtkWindow *window,
 
 ItemOperationController::~ItemOperationController()
 {
+    if (progress_source_id_ != 0U) {
+        g_source_remove(progress_source_id_);
+        progress_source_id_ = 0U;
+    }
+    if (current_control_) {
+        current_control_->request_cancel();
+    }
     if (rename_dialog_ != nullptr) {
         g_signal_handlers_disconnect_by_data(rename_dialog_, this);
         gtk_window_destroy(GTK_WINDOW(rename_dialog_));
         rename_dialog_ = nullptr;
-        rename_entry_ = nullptr;
-        rename_message_ = nullptr;
     }
     if (directory_list_ != nullptr) {
         if (location_handler_ != 0U) {
@@ -128,6 +155,33 @@ ItemOperationController::~ItemOperationController()
         g_object_unref(selection_);
         selection_ = nullptr;
     }
+}
+
+const char *ItemOperationController::kind_name(const Kind kind) noexcept
+{
+    switch (kind) {
+    case Kind::Rename:
+        return "rename";
+    case Kind::Copy:
+        return "copy";
+    case Kind::Move:
+        return "move";
+    case Kind::KeepBothCopy:
+        return "copy-keep-both";
+    case Kind::KeepBothMove:
+        return "move-keep-both";
+    case Kind::ReplaceCopy:
+        return "copy-replace";
+    case Kind::ReplaceMove:
+        return "move-replace";
+    }
+    return "unknown";
+}
+
+bool ItemOperationController::kind_is_transfer(const Kind kind) noexcept
+{
+    return kind == Kind::Copy || kind == Kind::Move ||
+           kind == Kind::KeepBothCopy || kind == Kind::KeepBothMove;
 }
 
 void ItemOperationController::on_window_finalized(gpointer user_data, GObject *where_object_was)
@@ -160,6 +214,23 @@ void ItemOperationController::on_move_clicked(GtkButton *button, gpointer user_d
     auto *self = static_cast<ItemOperationController *>(user_data);
     self->close_menu();
     self->choose_destination(Kind::Move);
+}
+
+void ItemOperationController::on_cancel_operation_clicked(GtkButton *button, gpointer user_data)
+{
+    (void)button;
+    auto *self = static_cast<ItemOperationController *>(user_data);
+    if (!self->current_control_) {
+        return;
+    }
+    self->current_control_->request_cancel();
+    if (self->cancel_operation_button_ != nullptr) {
+        gtk_widget_set_sensitive(self->cancel_operation_button_, FALSE);
+    }
+    if (self->status_label_ != nullptr) {
+        gtk_label_set_text(GTK_LABEL(self->status_label_),
+                           "Cancellation requested; stopping at the next safe boundary…");
+    }
 }
 
 gboolean ItemOperationController::on_key_pressed(GtkEventControllerKey *controller,
@@ -384,7 +455,6 @@ void ItemOperationController::on_destination_chosen(GObject *source_object,
         g_object_unref(held_window);
         return;
     }
-
     if (folder == nullptr || !g_file_is_native(folder)) {
         if (folder != nullptr) {
             g_object_unref(folder);
@@ -416,42 +486,42 @@ void ItemOperationController::on_destination_chosen(GObject *source_object,
     g_object_unref(held_window);
 }
 
-void ItemOperationController::prompt_replace(const Kind completed_kind,
-                                             const std::string &source_path,
-                                             const std::string &destination_parent,
-                                             const std::string &detail)
+void ItemOperationController::prompt_conflict(const Kind completed_kind,
+                                              const std::string &source_path,
+                                              const std::string &destination_parent,
+                                              const std::string &detail)
 {
     if (window_ == nullptr || chooser_busy_ || source_path.empty() || destination_parent.empty()) {
         return;
     }
 
     chooser_busy_ = true;
-    pending_replace_kind_ = completed_kind == Kind::Move ? Kind::ReplaceMove : Kind::ReplaceCopy;
-    pending_replace_source_path_ = source_path;
-    pending_replace_destination_parent_ = destination_parent;
+    pending_conflict_kind_ = completed_kind;
+    pending_conflict_source_path_ = source_path;
+    pending_conflict_destination_parent_ = destination_parent;
     update_action_state();
 
-    GtkAlertDialog *dialog = gtk_alert_dialog_new("Replace existing item?");
+    GtkAlertDialog *dialog = gtk_alert_dialog_new("An item with that name already exists");
     const std::string explanation = detail +
-        " Files will stage the existing destination first and restore it if replacement fails before the new result is verified.";
+        " Choose Skip to leave both locations unchanged, Keep Both to create a unique destination name, or Replace to stage the existing destination and replace it recoverably.";
     gtk_alert_dialog_set_detail(dialog, explanation.c_str());
-    const char *buttons[] = {"Cancel", "Replace", nullptr};
+    const char *buttons[] = {"Cancel", "Skip", "Keep Both", "Replace", nullptr};
     gtk_alert_dialog_set_buttons(dialog, buttons);
     gtk_alert_dialog_set_cancel_button(dialog, 0);
-    gtk_alert_dialog_set_default_button(dialog, 1);
+    gtk_alert_dialog_set_default_button(dialog, 2);
 
     g_object_ref(window_);
     gtk_alert_dialog_choose(dialog,
                             window_,
                             nullptr,
-                            &ItemOperationController::on_replace_chosen,
+                            &ItemOperationController::on_conflict_chosen,
                             this);
     g_object_unref(dialog);
 }
 
-void ItemOperationController::on_replace_chosen(GObject *source_object,
-                                                 GAsyncResult *result,
-                                                 gpointer user_data)
+void ItemOperationController::on_conflict_chosen(GObject *source_object,
+                                                  GAsyncResult *result,
+                                                  gpointer user_data)
 {
     auto *self = static_cast<ItemOperationController *>(user_data);
     GtkWindow *held_window = self->window_;
@@ -460,15 +530,15 @@ void ItemOperationController::on_replace_chosen(GObject *source_object,
     const int choice = gtk_alert_dialog_choose_finish(GTK_ALERT_DIALOG(source_object), result, &error);
     self->chooser_busy_ = false;
 
-    const Kind kind = self->pending_replace_kind_;
-    const std::string source_path = self->pending_replace_source_path_;
-    const std::string destination_parent = self->pending_replace_destination_parent_;
-    self->pending_replace_source_path_.clear();
-    self->pending_replace_destination_parent_.clear();
+    const Kind original_kind = self->pending_conflict_kind_;
+    const std::string source_path = self->pending_conflict_source_path_;
+    const std::string destination_parent = self->pending_conflict_destination_parent_;
+    self->pending_conflict_source_path_.clear();
+    self->pending_conflict_destination_parent_.clear();
 
     if (error != nullptr) {
         if (!g_error_matches(error, G_IO_ERROR, G_IO_ERROR_CANCELLED)) {
-            self->show_alert("Replace", error->message);
+            self->show_alert("Resolve conflict", error->message);
         }
         g_error_free(error);
         self->update_action_state();
@@ -477,7 +547,20 @@ void ItemOperationController::on_replace_chosen(GObject *source_object,
     }
 
     if (choice == 1) {
-        self->start_operation(kind, source_path, destination_parent, {});
+        if (self->status_label_ != nullptr) {
+            gtk_label_set_text(GTK_LABEL(self->status_label_), "Skipped conflicting item.");
+        }
+        self->update_action_state();
+    } else if (choice == 2) {
+        self->start_operation(original_kind == Kind::Move ? Kind::KeepBothMove : Kind::KeepBothCopy,
+                              source_path,
+                              destination_parent,
+                              {});
+    } else if (choice == 3) {
+        self->start_operation(original_kind == Kind::Move ? Kind::ReplaceMove : Kind::ReplaceCopy,
+                              source_path,
+                              destination_parent,
+                              {});
     } else {
         self->update_action_state();
     }
@@ -493,8 +576,27 @@ void ItemOperationController::start_operation(const Kind kind,
         return;
     }
 
+    OperationJournal journal;
+    const std::string journal_destination = kind == Kind::Rename
+                                                ? new_name
+                                                : destination_parent;
+    const std::string journal_id = journal.begin(kind_name(kind),
+                                                 source_path,
+                                                 journal_destination);
+    if (journal_id.empty()) {
+        show_alert("File operation",
+                   "The durable operation journal could not be written, so the mutation was not started.");
+        return;
+    }
+
+    std::shared_ptr<TransferControl> control;
+    if (kind_is_transfer(kind)) {
+        control = std::make_shared<TransferControl>();
+    }
+    current_control_ = control;
+
     auto *data = new ItemOperationTaskData{
-        static_cast<int>(kind), source_path, destination_parent, new_name};
+        static_cast<int>(kind), source_path, destination_parent, new_name, journal_id, control};
 
     set_busy(true);
     if (status_label_ != nullptr) {
@@ -518,19 +620,40 @@ void ItemOperationController::on_operation_thread(GTask *task,
     (void)source_object;
     (void)cancellable;
     const auto *data = static_cast<const ItemOperationTaskData *>(task_data);
-    OperationEngine engine;
+    const Kind kind = static_cast<Kind>(data->kind);
+
+    OperationEngine ordinary;
+    TransferOperationEngine transfer;
     RecoveryOperationEngine recovery;
 
     OperationResult operation;
-    switch (static_cast<Kind>(data->kind)) {
+    switch (kind) {
     case Kind::Rename:
-        operation = engine.rename_item(data->source_path, data->new_name);
+        operation = ordinary.rename_item(data->source_path, data->new_name);
         break;
     case Kind::Copy:
-        operation = engine.copy_item(data->source_path, data->destination_parent);
+        operation = transfer.copy_item(data->source_path,
+                                       data->destination_parent,
+                                       ConflictPolicy::Fail,
+                                       data->control.get());
         break;
     case Kind::Move:
-        operation = engine.move_item(data->source_path, data->destination_parent);
+        operation = transfer.move_item(data->source_path,
+                                       data->destination_parent,
+                                       ConflictPolicy::Fail,
+                                       data->control.get());
+        break;
+    case Kind::KeepBothCopy:
+        operation = transfer.copy_item(data->source_path,
+                                       data->destination_parent,
+                                       ConflictPolicy::KeepBoth,
+                                       data->control.get());
+        break;
+    case Kind::KeepBothMove:
+        operation = transfer.move_item(data->source_path,
+                                       data->destination_parent,
+                                       ConflictPolicy::KeepBoth,
+                                       data->control.get());
         break;
     case Kind::ReplaceCopy:
         operation = recovery.replace_copy(data->source_path, data->destination_parent);
@@ -538,6 +661,18 @@ void ItemOperationController::on_operation_thread(GTask *task,
     case Kind::ReplaceMove:
         operation = recovery.replace_move(data->source_path, data->destination_parent);
         break;
+    }
+
+    OperationJournal journal;
+    if (!journal.finish(data->journal_id, kind_name(kind), operation)) {
+        if (operation.ok()) {
+            operation.status = OperationStatus::VerificationFailure;
+            operation.phase = OperationPhase::Verify;
+        }
+        if (!operation.message.empty()) {
+            operation.message += ' ';
+        }
+        operation.message += "The durable operation journal could not record completion.";
     }
 
     auto *returned = new OperationResult(std::move(operation));
@@ -566,6 +701,7 @@ void ItemOperationController::on_operation_finished(GObject *source_object,
     std::unique_ptr<OperationResult> operation(
         static_cast<OperationResult *>(g_task_propagate_pointer(task, &error)));
     self->set_busy(false);
+    self->current_control_.reset();
 
     if (error != nullptr) {
         if (self->status_label_ != nullptr) {
@@ -585,10 +721,10 @@ void ItemOperationController::on_operation_finished(GObject *source_object,
         if (self->status_label_ != nullptr) {
             gtk_label_set_text(GTK_LABEL(self->status_label_), operation->message.c_str());
         }
-        self->prompt_replace(completed_kind,
-                             source_path,
-                             destination_parent,
-                             operation->message);
+        self->prompt_conflict(completed_kind,
+                              source_path,
+                              destination_parent,
+                              operation->message);
         return;
     }
 
@@ -601,7 +737,7 @@ void ItemOperationController::on_operation_finished(GObject *source_object,
         gtk_label_set_text(GTK_LABEL(self->status_label_), operation->message.c_str());
     }
 
-    if (!operation->ok()) {
+    if (!operation->ok() && operation->status != OperationStatus::Cancelled) {
         self->show_alert(operation->status == OperationStatus::VerificationFailure
                              ? "Operation completed with a verification problem"
                              : "File operation failed",
@@ -612,7 +748,65 @@ void ItemOperationController::on_operation_finished(GObject *source_object,
 void ItemOperationController::set_busy(const bool busy)
 {
     busy_ = busy;
+    if (operation_box_ != nullptr) {
+        gtk_widget_set_visible(operation_box_, busy);
+    }
+    if (cancel_operation_button_ != nullptr) {
+        gtk_widget_set_sensitive(cancel_operation_button_, busy && current_control_ != nullptr);
+    }
+    if (progress_bar_ != nullptr && busy) {
+        gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress_bar_), 0.0);
+    }
+
+    if (busy && progress_source_id_ == 0U) {
+        progress_source_id_ = g_timeout_add(100, &ItemOperationController::on_progress_tick, this);
+    } else if (!busy && progress_source_id_ != 0U) {
+        g_source_remove(progress_source_id_);
+        progress_source_id_ = 0U;
+    }
     update_action_state();
+}
+
+gboolean ItemOperationController::on_progress_tick(gpointer user_data)
+{
+    auto *self = static_cast<ItemOperationController *>(user_data);
+    if (!self->busy_) {
+        self->progress_source_id_ = 0U;
+        return G_SOURCE_REMOVE;
+    }
+    self->update_progress();
+    return G_SOURCE_CONTINUE;
+}
+
+void ItemOperationController::update_progress()
+{
+    if (progress_bar_ == nullptr) {
+        return;
+    }
+    if (!current_control_) {
+        gtk_progress_bar_pulse(GTK_PROGRESS_BAR(progress_bar_));
+        return;
+    }
+
+    const TransferProgress progress = current_control_->progress();
+    double fraction = 0.0;
+    bool determinate = false;
+    if (progress.bytes_total > 0U) {
+        fraction = static_cast<double>(progress.bytes_done) /
+                   static_cast<double>(progress.bytes_total);
+        determinate = true;
+    } else if (progress.items_total > 0U) {
+        fraction = static_cast<double>(progress.items_done) /
+                   static_cast<double>(progress.items_total);
+        determinate = true;
+    }
+
+    if (determinate) {
+        gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress_bar_),
+                                      std::clamp(fraction, 0.0, 1.0));
+    } else {
+        gtk_progress_bar_pulse(GTK_PROGRESS_BAR(progress_bar_));
+    }
 }
 
 void ItemOperationController::update_action_state()

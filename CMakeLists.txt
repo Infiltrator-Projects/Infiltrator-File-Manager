@@ -61,7 +61,9 @@ pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-2.0)
 add_library(infiltrator-files-core STATIC
     src/core/location.cpp
     src/core/operation_engine.cpp
-    src/core/recovery_operation_engine.cpp)
+    src/core/operation_journal.cpp
+    src/core/recovery_operation_engine.cpp
+    src/core/transfer_operation_engine.cpp)
 target_include_directories(infiltrator-files-core PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/core")
 target_compile_features(infiltrator-files-core PUBLIC cxx_std_20)
@@ -101,6 +103,14 @@ if(BUILD_TESTING)
     add_executable(recovery-operation-engine-test tests/recovery_operation_engine_test.cpp)
     target_link_libraries(recovery-operation-engine-test PRIVATE infiltrator-files-core)
     add_test(NAME recovery-operation-engine COMMAND recovery-operation-engine-test)
+
+    add_executable(transfer-operation-engine-test tests/transfer_operation_engine_test.cpp)
+    target_link_libraries(transfer-operation-engine-test PRIVATE infiltrator-files-core)
+    add_test(NAME transfer-operation-engine COMMAND transfer-operation-engine-test)
+
+    add_executable(operation-journal-test tests/operation_journal_test.cpp)
+    target_link_libraries(operation-journal-test PRIVATE infiltrator-files-core)
+    add_test(NAME operation-journal COMMAND operation-journal-test)
 endif()
 
 install(TARGETS infiltrator-file-manager

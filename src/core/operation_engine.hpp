@@ -21,6 +21,7 @@ enum class OperationStatus {
     DestinationConflict,
     PermissionFailure,
     ReadOnlyLocation,
+    Cancelled,
     ExecutionFailure,
     VerificationFailure,
 };
