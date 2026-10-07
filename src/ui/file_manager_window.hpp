@@ -3,6 +3,7 @@
 
 #include "../core/location.hpp"
 #include "create_folder_controller.hpp"
+#include "destructive_operation_controller.hpp"
 #include "item_operation_controller.hpp"
 
 #include <gtk/gtk.h>
@@ -30,6 +31,7 @@ public:
         }
         new CreateFolderController(GTK_WINDOW(window_), directory_list_, selection_, status_label_);
         new ItemOperationController(GTK_WINDOW(window_), directory_list_, selection_, status_label_);
+        new DestructiveOperationController(GTK_WINDOW(window_), directory_list_, selection_, status_label_);
         operation_surface_installed_ = true;
     }
     [[nodiscard]] GtkWindow *native_window() const noexcept { return GTK_WINDOW(window_); }
