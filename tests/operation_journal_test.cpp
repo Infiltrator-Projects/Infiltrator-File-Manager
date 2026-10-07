@@ -44,11 +44,44 @@ int main()
     std::ifstream stream(journal_path, std::ios::binary);
     std::ostringstream content;
     content << stream.rdbuf();
-    const std::string text = content.str();
+    std::string text = content.str();
     if (text.find("\t" + id + "\tSTART\tcopy\t/tmp/source\\tname\t/tmp/destination") == std::string::npos ||
         text.find("\t" + id + "\tEND\tcopy\tsuccess\tchanged\t/tmp/destination/source\tCopied successfully.") == std::string::npos) {
         fs::remove_all(root, cleanup_error);
         return 3;
+    }
+
+    const std::string interrupted_id =
+        journal.begin("move", "/tmp/interrupted\nsource", "/tmp/interrupted-destination");
+    if (interrupted_id.empty()) {
+        fs::remove_all(root, cleanup_error);
+        return 4;
+    }
+
+    const auto interrupted = journal.interrupted_operations();
+    if (interrupted.size() != 1U ||
+        interrupted.front().operation_id != interrupted_id ||
+        interrupted.front().kind != "move" ||
+        interrupted.front().source != "/tmp/interrupted\nsource" ||
+        interrupted.front().destination != "/tmp/interrupted-destination") {
+        fs::remove_all(root, cleanup_error);
+        return 5;
+    }
+
+    if (!journal.mark_interrupted(interrupted.front()) ||
+        !journal.interrupted_operations().empty()) {
+        fs::remove_all(root, cleanup_error);
+        return 6;
+    }
+
+    std::ifstream recovered_stream(journal_path, std::ios::binary);
+    std::ostringstream recovered_content;
+    recovered_content << recovered_stream.rdbuf();
+    text = recovered_content.str();
+    if (text.find("\t" + interrupted_id + "\tEND\tmove\tverification-failure\tchanged") == std::string::npos ||
+        text.find("previous Files session ended before this operation recorded completion") == std::string::npos) {
+        fs::remove_all(root, cleanup_error);
+        return 7;
     }
 
     const auto permissions = fs::status(journal_path).permissions();
@@ -57,7 +90,7 @@ int main()
                                 fs::perms::others_write | fs::perms::others_exec;
     if ((permissions & group_or_other) != fs::perms::none) {
         fs::remove_all(root, cleanup_error);
-        return 4;
+        return 8;
     }
 
     fs::remove_all(root, cleanup_error);
