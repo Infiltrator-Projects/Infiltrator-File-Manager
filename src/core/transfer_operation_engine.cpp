@@ -5,6 +5,7 @@
 #include <fstream>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace infiltrator::files {
 
@@ -201,6 +202,43 @@ bool copy_regular_file(const std::filesystem::path &source,
     return true;
 }
 
+bool preserve_metadata(const std::filesystem::path &source,
+                       const std::filesystem::path &destination,
+                       std::error_code &error)
+{
+    error.clear();
+    const auto source_status = std::filesystem::status(source, error);
+    if (error) {
+        return false;
+    }
+
+    std::filesystem::permissions(destination,
+                                 source_status.permissions(),
+                                 std::filesystem::perm_options::replace,
+                                 error);
+    if (error) {
+        return false;
+    }
+
+    const auto modified = std::filesystem::last_write_time(source, error);
+    if (error) {
+        return false;
+    }
+    std::filesystem::last_write_time(destination, modified, error);
+    return !error;
+}
+
+OperationResult metadata_failure(const std::filesystem::path &destination,
+                                 const std::error_code &error)
+{
+    return failure(OperationStatus::VerificationFailure,
+                   OperationPhase::Verify,
+                   destination,
+                   "The contents were copied, but permissions or modification time could not be preserved: " +
+                       error.message(),
+                   true);
+}
+
 OperationResult copy_exact(const std::filesystem::path &source,
                            const std::filesystem::path &destination,
                            TransferControl *control)
@@ -229,6 +267,9 @@ OperationResult copy_exact(const std::filesystem::path &source,
                        "The selected item could not be inspected.");
     }
 
+    std::vector<std::pair<std::filesystem::path, std::filesystem::path>> file_metadata;
+    std::vector<std::pair<std::filesystem::path, std::filesystem::path>> directory_metadata;
+
     if (std::filesystem::is_symlink(source_status)) {
         const auto target = std::filesystem::read_symlink(source, error);
         if (!error) {
@@ -244,9 +285,14 @@ OperationResult copy_exact(const std::filesystem::path &source,
                 std::filesystem::remove(destination, cleanup_error);
                 return cancelled_result(destination, static_cast<bool>(cleanup_error));
             }
+        } else {
+            file_metadata.emplace_back(source, destination);
         }
     } else if (std::filesystem::is_directory(source_status)) {
         std::filesystem::create_directory(destination, error);
+        if (!error) {
+            directory_metadata.emplace_back(source, destination);
+        }
         if (!error && control != nullptr) {
             control->add_item();
         }
@@ -267,6 +313,9 @@ OperationResult copy_exact(const std::filesystem::path &source,
             }
             if (std::filesystem::is_directory(entry_status)) {
                 std::filesystem::create_directory(target, error);
+                if (!error) {
+                    directory_metadata.emplace_back(iterator->path(), target);
+                }
                 if (!error && control != nullptr) {
                     control->add_item();
                 }
@@ -285,6 +334,8 @@ OperationResult copy_exact(const std::filesystem::path &source,
                         std::filesystem::remove_all(destination, cleanup_error);
                         return cancelled_result(destination, static_cast<bool>(cleanup_error));
                     }
+                } else {
+                    file_metadata.emplace_back(iterator->path(), target);
                 }
             } else {
                 error = std::make_error_code(std::errc::operation_not_supported);
@@ -312,6 +363,17 @@ OperationResult copy_exact(const std::filesystem::path &source,
         std::error_code cleanup_error;
         std::filesystem::remove_all(destination, cleanup_error);
         return cancelled_result(destination, static_cast<bool>(cleanup_error));
+    }
+
+    for (const auto &entry : file_metadata) {
+        if (!preserve_metadata(entry.first, entry.second, error)) {
+            return metadata_failure(destination, error);
+        }
+    }
+    for (auto iterator = directory_metadata.rbegin(); iterator != directory_metadata.rend(); ++iterator) {
+        if (!preserve_metadata(iterator->first, iterator->second, error)) {
+            return metadata_failure(destination, error);
+        }
     }
 
     if (!path_present(destination, error) || error) {
@@ -388,11 +450,20 @@ TransferProgress TransferControl::progress() const noexcept
     return progress_;
 }
 
+void TransferControl::begin_batch(const std::uintmax_t bytes, const std::uintmax_t items) noexcept
+{
+    std::lock_guard<std::mutex> lock(progress_mutex_);
+    progress_ = TransferProgress{0, bytes, 0, items};
+    batch_mode_ = true;
+}
+
 void TransferControl::set_total(const std::uintmax_t bytes, const std::uintmax_t items) noexcept
 {
     std::lock_guard<std::mutex> lock(progress_mutex_);
-    progress_.bytes_total = bytes;
-    progress_.items_total = items;
+    if (!batch_mode_) {
+        progress_.bytes_total = bytes;
+        progress_.items_total = items;
+    }
 }
 
 void TransferControl::add_bytes(const std::uintmax_t bytes) noexcept
