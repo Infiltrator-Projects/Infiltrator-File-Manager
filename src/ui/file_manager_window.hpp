@@ -2,9 +2,11 @@
 #pragma once
 
 #include "../core/location.hpp"
+#include "batch_item_operation_controller.hpp"
 #include "create_folder_controller.hpp"
 #include "destructive_operation_controller.hpp"
 #include "item_operation_controller.hpp"
+#include "journal_recovery_controller.hpp"
 
 #include <gtk/gtk.h>
 
@@ -29,9 +31,11 @@ public:
         if (operation_surface_installed_) {
             return;
         }
-        new CreateFolderController(GTK_WINDOW(window_), directory_list_, selection_, status_label_);
-        new ItemOperationController(GTK_WINDOW(window_), directory_list_, selection_, status_label_);
-        new DestructiveOperationController(GTK_WINDOW(window_), directory_list_, selection_, status_label_);
+        new CreateFolderController(GTK_WINDOW(window_), directory_list_, primary_selection_, status_label_);
+        new ItemOperationController(GTK_WINDOW(window_), directory_list_, primary_selection_, status_label_);
+        new DestructiveOperationController(GTK_WINDOW(window_), directory_list_, primary_selection_, status_label_);
+        new BatchItemOperationController(GTK_WINDOW(window_), directory_list_, selection_, status_label_);
+        new JournalRecoveryController(GTK_WINDOW(window_), status_label_);
         operation_surface_installed_ = true;
     }
     [[nodiscard]] GtkWindow *native_window() const noexcept { return GTK_WINDOW(window_); }
@@ -48,6 +52,13 @@ private:
     static void on_factory_bind(GtkSignalListItemFactory *factory, GtkListItem *item, gpointer user_data);
     static void on_loading_changed(GObject *object, GParamSpec *pspec, gpointer user_data);
     static void on_launch_finished(GObject *source, GAsyncResult *result, gpointer user_data);
+    static void on_multi_selection_changed(GtkSelectionModel *model,
+                                           guint position,
+                                           guint n_items,
+                                           gpointer user_data);
+    static void on_primary_selection_changed(GObject *object,
+                                             GParamSpec *pspec,
+                                             gpointer user_data);
 
     void build_ui(GtkApplication *application);
     void apply_theme();
@@ -56,6 +67,8 @@ private:
     void navigate_history(std::ptrdiff_t delta);
     void update_navigation_state();
     void update_status();
+    void sync_primary_from_multi();
+    void sync_multi_from_primary();
     [[nodiscard]] GFile *file_from_location_text(const char *text) const;
 
     GtkWidget *window_{nullptr};
@@ -67,11 +80,13 @@ private:
     GtkWidget *status_label_{nullptr};
     GtkWidget *spinner_{nullptr};
     GtkDirectoryList *directory_list_{nullptr};
-    GtkSingleSelection *selection_{nullptr};
+    GtkMultiSelection *selection_{nullptr};
+    GtkSingleSelection *primary_selection_{nullptr};
     GFile *current_location_{nullptr};
     std::vector<Location> history_;
     std::size_t history_index_{0};
     bool operation_surface_installed_{false};
+    bool selection_syncing_{false};
 };
 
 } // namespace infiltrator::files
