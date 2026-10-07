@@ -2,14 +2,14 @@
 
 Infiltrator File Manager is a clean-sheet file-management project for InfiltratorOS.
 
-**Current source version:** 0.1.4  
+**Current source version:** 0.1.5  
 **Shared foundation:** exact Infiltratr Common 1.19.38 gitlink, linked through the full Common target on InfiltratorOS/POSIX  
 **Desktop implementation:** C++20 + GTK 4/GIO  
-**Status:** early implementation; browsing foundation plus deterministic create, rename, copy and move operations
+**Status:** early implementation; browsing foundation plus deterministic create, rename, copy, move, replace, Trash, restore and permanent-delete operations
 
 The project does not exist to reproduce Nemo, Dolphin, Explorer, Finder or another existing file manager. Mature products, standards and current research are evidence. The project chooses the strongest justified mechanisms and owns its own interaction, operation and recovery semantics.
 
-The implementation has now started, but the architecture remains deliberately capable of changing while the early model and interaction contracts are being proven. The first tranches establish a real browser and the mutation boundary without prematurely adding destructive delete/overwrite semantics, semantic indexing or filesystem-specific policy.
+The implementation has now started, but the architecture remains deliberately capable of changing while the early model and interaction contracts are being proven. The first tranches establish a real browser and the mutation boundary before semantic indexing, broad parity features or filesystem-specific policy are allowed to accumulate.
 
 ## Design position
 
@@ -52,7 +52,7 @@ The catalogue is intentionally broader than the current release. It is the produ
 
 Common's role is documented separately in [`docs/COMMON-INTEGRATION.md`](docs/COMMON-INTEGRATION.md). That ledger identifies which mechanics Files should inherit from Common, which semantics remain Files-owned, and which capabilities remain InfiltratorFS-owned.
 
-## Current 0.1.4 implementation
+## Current 0.1.5 implementation
 
 The executable is `infiltrator-file-manager`, presented to the user as **Files**.
 
@@ -71,18 +71,25 @@ It currently provides:
 - deterministic **New Folder**, available from the header action or `Ctrl+Shift+N` for native locations;
 - deterministic **Rename**, available from the selected-item Actions menu or `F2`;
 - deterministic **Copy to…** and **Move to…**, using a native folder picker for the destination;
+- explicit **Replace** handling when Copy or Move encounters a destination collision rather than silently overwriting;
+- replacement staging that moves the existing destination aside first, verifies the replacement, restores the previous destination on a safe failure path and retains staged data rather than guessing after an uncertain move;
 - same-filesystem moves through filesystem rename semantics, with verified copy-then-remove fallback for cross-volume moves;
 - recursive directory copies that preserve symbolic links and verify the copied tree shape and regular-file sizes before reporting success;
 - rollback of a newly created copy destination when copy execution or verification fails and cleanup remains possible;
-- a toolkit-neutral operation engine with explicit preflight, destination planning, execution, post-verification and typed result states;
+- deterministic **Move to Trash** for native items, available from the Trash action and the `Delete` key;
+- **Restore** from the Trash namespace to the original local path when the platform exposes the original location;
+- explicit restore-collision handling with the same staged replacement rule rather than deleting the existing destination first;
+- explicit **Delete Permanently…**, guarded by a confirmation dialog and available separately from recoverable Trash removal; `Shift+Delete` invokes the permanent path directly;
+- a toolkit-neutral ordinary operation engine with explicit preflight, destination planning, execution, post-verification and typed result states;
+- a separate recovery/destructive operation layer for replacement rollback, Trash, restoration and permanent deletion so destructive policy does not inflate the ordinary operation engine;
 - distinct handling for invalid requests, destination conflicts, permission failures, read-only locations, execution failures and verification failures;
 - asynchronous execution of mutation work so filesystem operations do not block the GTK main loop;
 - monitored refresh and automatic selection of newly created, renamed, copied or moved items when their result appears in the current view;
-- a separate item-operation UI controller so mutation interaction does not accumulate inside `FileManagerWindow`;
+- separate creation, item-operation and destructive-operation UI controllers so mutation interaction does not accumulate inside `FileManagerWindow`;
 - the full `InfiltratrCommon::Common` build dependency on InfiltratorOS/POSIX, making Common's POSIX/state/I/O contracts available to the non-UI layers as they are introduced; and
 - a hosted build/test gate on every main-branch update.
 
-Delete, Trash/restore and overwrite remain deliberately absent. They will be added only when their recovery and conflict semantics are explicit rather than as ad-hoc callbacks.
+The next operation work is broader conflict policy (`Skip`, `Keep Both`, compatible multi-conflict policy), operation progress/cancellation and durable operation journalling. Those remain absent rather than being simulated with ad-hoc callbacks.
 
 Semantic/context indexing and InfiltratorFS-specific capability providers are also deliberately absent from this early executable. Ordinary file-manager correctness comes first.
 
@@ -99,7 +106,7 @@ ctest --test-dir build --output-on-failure
 ./build/infiltrator-file-manager
 ```
 
-The build rejects a missing, wrong-version or wrong-commit Infiltratr Common checkout. Version 0.1.4 is pinned to Common 1.19.38 at commit `04b5e219924ec0e65ef9d254c114fad4de0abd29`.
+The build rejects a missing, wrong-version or wrong-commit Infiltratr Common checkout. Version 0.1.5 is pinned to Common 1.19.38 at commit `04b5e219924ec0e65ef9d254c114fad4de0abd29`.
 
 ## Design documents
 
