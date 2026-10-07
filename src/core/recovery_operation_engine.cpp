@@ -1,0 +1,566 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#include "recovery_operation_engine.hpp"
+
+#include <gio/gio.h>
+
+#include <chrono>
+#include <cstdint>
+#include <string>
+#include <system_error>
+
+namespace infiltrator::files {
+
+namespace {
+
+OperationResult result(const OperationStatus status,
+                       const OperationPhase phase,
+                       const std::filesystem::path &destination,
+                       std::string message,
+                       const bool changed = false)
+{
+    return OperationResult{status, phase, destination, std::move(message), changed};
+}
+
+std::string quoted_name(const std::filesystem::path &path)
+{
+    return "“" + path.filename().string() + "”";
+}
+
+bool path_present(const std::filesystem::path &path, std::error_code &error)
+{
+    error.clear();
+    const std::filesystem::file_status status = std::filesystem::symlink_status(path, error);
+    if (error == std::errc::no_such_file_or_directory ||
+        error == std::errc::not_a_directory) {
+        error.clear();
+        return false;
+    }
+    if (error) {
+        return false;
+    }
+    return status.type() != std::filesystem::file_type::not_found;
+}
+
+OperationStatus status_for_gerror(const GError *error) noexcept
+{
+    if (error == nullptr) {
+        return OperationStatus::Success;
+    }
+    if (g_error_matches(error, G_IO_ERROR, G_IO_ERROR_EXISTS)) {
+        return OperationStatus::DestinationConflict;
+    }
+    if (g_error_matches(error, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED) ||
+        g_error_matches(error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED)) {
+        return OperationStatus::PermissionFailure;
+    }
+    if (g_error_matches(error, G_IO_ERROR, G_IO_ERROR_READ_ONLY)) {
+        return OperationStatus::ReadOnlyLocation;
+    }
+    if (g_error_matches(error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND) ||
+        g_error_matches(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT) ||
+        g_error_matches(error, G_IO_ERROR, G_IO_ERROR_INVALID_FILENAME)) {
+        return OperationStatus::InvalidRequest;
+    }
+    return OperationStatus::ExecutionFailure;
+}
+
+std::filesystem::path backup_path_for(const std::filesystem::path &destination,
+                                      std::error_code &error)
+{
+    error.clear();
+    const auto tick = std::chrono::steady_clock::now().time_since_epoch().count();
+    const std::string base = ".infiltrator-replace-" + destination.filename().string() + "-" +
+                             std::to_string(tick);
+
+    for (std::uint32_t attempt = 0U; attempt < 1024U; ++attempt) {
+        const std::filesystem::path candidate =
+            destination.parent_path() / (base + "-" + std::to_string(attempt));
+        if (!path_present(candidate, error)) {
+            if (!error) {
+                return candidate;
+            }
+            return {};
+        }
+    }
+
+    error = std::make_error_code(std::errc::file_exists);
+    return {};
+}
+
+bool rollback_destination(const std::filesystem::path &destination,
+                          const std::filesystem::path &backup,
+                          std::string &detail)
+{
+    std::error_code remove_error;
+    (void)std::filesystem::remove_all(destination, remove_error);
+    if (remove_error) {
+        detail = "The partial replacement could not be removed: " + remove_error.message();
+        return false;
+    }
+
+    std::error_code restore_error;
+    std::filesystem::rename(backup, destination, restore_error);
+    if (restore_error) {
+        detail = "The previous destination could not be restored: " + restore_error.message();
+        return false;
+    }
+    return true;
+}
+
+OperationResult cleanup_replaced_destination(const std::filesystem::path &destination,
+                                             const std::filesystem::path &backup,
+                                             std::string success_message)
+{
+    std::error_code cleanup_error;
+    (void)std::filesystem::remove_all(backup, cleanup_error);
+    if (cleanup_error) {
+        return result(OperationStatus::VerificationFailure,
+                      OperationPhase::Verify,
+                      destination,
+                      std::move(success_message) +
+                          " The previous destination was retained at “" + backup.string() +
+                          "” because cleanup failed: " + cleanup_error.message(),
+                      true);
+    }
+    return result(OperationStatus::Success,
+                  OperationPhase::Complete,
+                  destination,
+                  std::move(success_message),
+                  true);
+}
+
+bool same_existing_object(const std::filesystem::path &left,
+                          const std::filesystem::path &right)
+{
+    std::error_code error;
+    const bool same = std::filesystem::equivalent(left, right, error);
+    return !error && same;
+}
+
+} // namespace
+
+OperationResult RecoveryOperationEngine::replace_copy(
+    const std::filesystem::path &source,
+    const std::filesystem::path &destination_parent) const
+{
+    OperationEngine ordinary;
+    OperationResult initial = ordinary.copy_item(source, destination_parent);
+    if (initial.status != OperationStatus::DestinationConflict) {
+        return initial;
+    }
+
+    const std::filesystem::path destination = destination_parent / source.filename();
+    if (same_existing_object(source, destination)) {
+        return result(OperationStatus::InvalidRequest,
+                      OperationPhase::Preflight,
+                      destination,
+                      "An item cannot replace itself.");
+    }
+
+    std::error_code error;
+    const std::filesystem::path backup = backup_path_for(destination, error);
+    if (error || backup.empty()) {
+        return result(OperationEngine::status_for_error(error),
+                      OperationPhase::Preflight,
+                      destination,
+                      "A safe replacement staging path could not be reserved.");
+    }
+
+    std::filesystem::rename(destination, backup, error);
+    if (error) {
+        return result(OperationEngine::status_for_error(error),
+                      OperationPhase::Execute,
+                      destination,
+                      "The existing destination could not be staged safely: " + error.message());
+    }
+
+    OperationResult replacement = ordinary.copy_item(source, destination_parent);
+    if (replacement.ok()) {
+        return cleanup_replaced_destination(
+            destination, backup, "Replaced " + quoted_name(destination) + ".");
+    }
+
+    std::string rollback_detail;
+    if (!rollback_destination(destination, backup, rollback_detail)) {
+        return result(OperationStatus::VerificationFailure,
+                      OperationPhase::Verify,
+                      destination,
+                      "The replacement failed and Files could not restore the previous destination. " +
+                          rollback_detail,
+                      true);
+    }
+
+    replacement.destination = destination;
+    replacement.changed = false;
+    if (!replacement.message.empty()) {
+        replacement.message += " The previous destination was restored.";
+    } else {
+        replacement.message = "The replacement failed. The previous destination was restored.";
+    }
+    return replacement;
+}
+
+OperationResult RecoveryOperationEngine::replace_move(
+    const std::filesystem::path &source,
+    const std::filesystem::path &destination_parent) const
+{
+    OperationEngine ordinary;
+    OperationResult initial = ordinary.move_item(source, destination_parent);
+    if (initial.status != OperationStatus::DestinationConflict) {
+        return initial;
+    }
+
+    const std::filesystem::path destination = destination_parent / source.filename();
+    if (same_existing_object(source, destination)) {
+        return result(OperationStatus::InvalidRequest,
+                      OperationPhase::Preflight,
+                      destination,
+                      "An item cannot replace itself.");
+    }
+
+    std::error_code error;
+    const std::filesystem::path backup = backup_path_for(destination, error);
+    if (error || backup.empty()) {
+        return result(OperationEngine::status_for_error(error),
+                      OperationPhase::Preflight,
+                      destination,
+                      "A safe replacement staging path could not be reserved.");
+    }
+
+    std::filesystem::rename(destination, backup, error);
+    if (error) {
+        return result(OperationEngine::status_for_error(error),
+                      OperationPhase::Execute,
+                      destination,
+                      "The existing destination could not be staged safely: " + error.message());
+    }
+
+    OperationResult replacement = ordinary.move_item(source, destination_parent);
+    if (replacement.ok()) {
+        return cleanup_replaced_destination(
+            destination, backup, "Replaced " + quoted_name(destination) + " by moving the selected item.");
+    }
+
+    std::error_code source_error;
+    const bool source_still_exists = path_present(source, source_error);
+    if (!source_error && source_still_exists) {
+        std::string rollback_detail;
+        if (rollback_destination(destination, backup, rollback_detail)) {
+            replacement.destination = destination;
+            replacement.changed = false;
+            if (!replacement.message.empty()) {
+                replacement.message += " The previous destination was restored.";
+            } else {
+                replacement.message = "The replacement move failed. The previous destination was restored.";
+            }
+            return replacement;
+        }
+        return result(OperationStatus::VerificationFailure,
+                      OperationPhase::Verify,
+                      destination,
+                      "The replacement move failed and Files could not restore the previous destination. " +
+                          rollback_detail,
+                      true);
+    }
+
+    return result(OperationStatus::VerificationFailure,
+                  OperationPhase::Verify,
+                  destination,
+                  "The replacement move did not verify cleanly. Files retained the staged previous destination at “" +
+                      backup.string() + "” rather than risking data loss.",
+                  true);
+}
+
+OperationResult RecoveryOperationEngine::trash_item(const std::filesystem::path &source) const
+{
+    if (source.empty() || source.filename().empty()) {
+        return result(OperationStatus::InvalidRequest,
+                      OperationPhase::Preflight,
+                      {},
+                      "The selected item cannot be moved to Trash.");
+    }
+
+    std::error_code error;
+    const bool source_exists = path_present(source, error);
+    if (error || !source_exists) {
+        return result(error ? OperationEngine::status_for_error(error)
+                            : OperationStatus::InvalidRequest,
+                      OperationPhase::Preflight,
+                      {},
+                      "The selected item no longer exists.");
+    }
+
+    GFile *file = g_file_new_for_path(source.string().c_str());
+    GError *gio_error = nullptr;
+    const gboolean trashed = g_file_trash(file, nullptr, &gio_error);
+    g_object_unref(file);
+
+    if (!trashed) {
+        const OperationStatus status = status_for_gerror(gio_error);
+        const std::string detail = gio_error != nullptr ? gio_error->message : "Unknown error";
+        if (gio_error != nullptr) {
+            g_error_free(gio_error);
+        }
+        return result(status,
+                      OperationPhase::Execute,
+                      {},
+                      "The item could not be moved to Trash: " + detail);
+    }
+
+    const bool source_still_exists = path_present(source, error);
+    if (error || source_still_exists) {
+        return result(OperationStatus::VerificationFailure,
+                      OperationPhase::Verify,
+                      {},
+                      "The Trash operation completed but the original path could not be verified as removed.",
+                      true);
+    }
+
+    return result(OperationStatus::Success,
+                  OperationPhase::Complete,
+                  {},
+                  "Moved " + quoted_name(source) + " to Trash.",
+                  true);
+}
+
+OperationResult RecoveryOperationEngine::restore_item(
+    const std::string_view trash_uri,
+    const std::filesystem::path &original_path,
+    const bool replace_existing) const
+{
+    if (trash_uri.empty() || original_path.empty() || original_path.filename().empty()) {
+        return result(OperationStatus::InvalidRequest,
+                      OperationPhase::Preflight,
+                      original_path,
+                      "The Trash item does not contain a usable original location.");
+    }
+
+    std::error_code error;
+    const std::filesystem::file_status parent_status =
+        std::filesystem::status(original_path.parent_path(), error);
+    if (error || !std::filesystem::is_directory(parent_status)) {
+        return result(error ? OperationEngine::status_for_error(error)
+                            : OperationStatus::InvalidRequest,
+                      OperationPhase::Preflight,
+                      original_path,
+                      "The original folder is no longer available.");
+    }
+
+    GFile *trash_file = g_file_new_for_uri(std::string(trash_uri).c_str());
+    GError *query_error = nullptr;
+    GFileInfo *trash_info = g_file_query_info(trash_file,
+                                              G_FILE_ATTRIBUTE_STANDARD_TYPE,
+                                              G_FILE_QUERY_INFO_NOFOLLOW_SYMLINKS,
+                                              nullptr,
+                                              &query_error);
+    if (trash_info == nullptr) {
+        const OperationStatus status = status_for_gerror(query_error);
+        const std::string detail = query_error != nullptr ? query_error->message : "Unknown error";
+        if (query_error != nullptr) {
+            g_error_free(query_error);
+        }
+        g_object_unref(trash_file);
+        return result(status,
+                      OperationPhase::Preflight,
+                      original_path,
+                      "The Trash item is no longer available: " + detail);
+    }
+    g_object_unref(trash_info);
+
+    const bool destination_exists = path_present(original_path, error);
+    if (error) {
+        g_object_unref(trash_file);
+        return result(OperationEngine::status_for_error(error),
+                      OperationPhase::Preflight,
+                      original_path,
+                      "The original destination could not be inspected.");
+    }
+    if (destination_exists && !replace_existing) {
+        g_object_unref(trash_file);
+        return result(OperationStatus::DestinationConflict,
+                      OperationPhase::Preflight,
+                      original_path,
+                      "An item named " + quoted_name(original_path) +
+                          " already exists in the original folder.");
+    }
+
+    std::filesystem::path backup;
+    if (destination_exists) {
+        backup = backup_path_for(original_path, error);
+        if (error || backup.empty()) {
+            g_object_unref(trash_file);
+            return result(OperationEngine::status_for_error(error),
+                          OperationPhase::Preflight,
+                          original_path,
+                          "A safe restore replacement staging path could not be reserved.");
+        }
+        std::filesystem::rename(original_path, backup, error);
+        if (error) {
+            g_object_unref(trash_file);
+            return result(OperationEngine::status_for_error(error),
+                          OperationPhase::Execute,
+                          original_path,
+                          "The existing item could not be staged safely before restore: " +
+                              error.message());
+        }
+    }
+
+    GFile *destination_file = g_file_new_for_path(original_path.string().c_str());
+    GError *move_error = nullptr;
+    const gboolean moved = g_file_move(trash_file,
+                                       destination_file,
+                                       G_FILE_COPY_NOFOLLOW_SYMLINKS,
+                                       nullptr,
+                                       nullptr,
+                                       nullptr,
+                                       &move_error);
+    g_object_unref(destination_file);
+
+    if (!moved) {
+        const OperationStatus status = status_for_gerror(move_error);
+        const std::string detail = move_error != nullptr ? move_error->message : "Unknown error";
+        if (move_error != nullptr) {
+            g_error_free(move_error);
+        }
+
+        if (!backup.empty()) {
+            const bool destination_now_exists = path_present(original_path, error);
+            const bool trash_still_exists = g_file_query_exists(trash_file, nullptr) != FALSE;
+            if (!error && !destination_now_exists && trash_still_exists) {
+                std::string rollback_detail;
+                if (!rollback_destination(original_path, backup, rollback_detail)) {
+                    g_object_unref(trash_file);
+                    return result(OperationStatus::VerificationFailure,
+                                  OperationPhase::Verify,
+                                  original_path,
+                                  "Restore failed and the previous destination could not be restored. " +
+                                      rollback_detail,
+                                  true);
+                }
+            } else {
+                g_object_unref(trash_file);
+                return result(OperationStatus::VerificationFailure,
+                              OperationPhase::Verify,
+                              original_path,
+                              "Restore failed in an uncertain state. Files retained the staged previous destination at “" +
+                                  backup.string() + "” rather than risking data loss.",
+                              true);
+            }
+        }
+
+        g_object_unref(trash_file);
+        return result(status,
+                      OperationPhase::Execute,
+                      original_path,
+                      "The item could not be restored: " + detail);
+    }
+
+    g_object_unref(trash_file);
+
+    const bool restored = path_present(original_path, error);
+    if (error || !restored) {
+        return result(OperationStatus::VerificationFailure,
+                      OperationPhase::Verify,
+                      original_path,
+                      "The restore completed but the restored item could not be verified.",
+                      true);
+    }
+
+    if (!backup.empty()) {
+        return cleanup_replaced_destination(
+            original_path, backup, "Restored and replaced " + quoted_name(original_path) + ".");
+    }
+
+    return result(OperationStatus::Success,
+                  OperationPhase::Complete,
+                  original_path,
+                  "Restored " + quoted_name(original_path) + ".",
+                  true);
+}
+
+OperationResult RecoveryOperationEngine::delete_item(const std::filesystem::path &source) const
+{
+    if (source.empty() || source.filename().empty()) {
+        return result(OperationStatus::InvalidRequest,
+                      OperationPhase::Preflight,
+                      {},
+                      "The selected item cannot be permanently deleted.");
+    }
+
+    std::error_code error;
+    const bool source_exists = path_present(source, error);
+    if (error || !source_exists) {
+        return result(error ? OperationEngine::status_for_error(error)
+                            : OperationStatus::InvalidRequest,
+                      OperationPhase::Preflight,
+                      {},
+                      "The selected item no longer exists.");
+    }
+
+    (void)std::filesystem::remove_all(source, error);
+    if (error) {
+        return result(OperationEngine::status_for_error(error),
+                      OperationPhase::Execute,
+                      {},
+                      "The item could not be permanently deleted: " + error.message());
+    }
+
+    const bool still_exists = path_present(source, error);
+    if (error || still_exists) {
+        return result(OperationStatus::VerificationFailure,
+                      OperationPhase::Verify,
+                      {},
+                      "Deletion completed but removal could not be verified.",
+                      true);
+    }
+
+    return result(OperationStatus::Success,
+                  OperationPhase::Complete,
+                  {},
+                  "Permanently deleted " + quoted_name(source) + ".",
+                  true);
+}
+
+OperationResult RecoveryOperationEngine::delete_uri(const std::string_view uri) const
+{
+    if (uri.empty()) {
+        return result(OperationStatus::InvalidRequest,
+                      OperationPhase::Preflight,
+                      {},
+                      "The selected Trash item is not available.");
+    }
+
+    GFile *file = g_file_new_for_uri(std::string(uri).c_str());
+    GError *delete_error = nullptr;
+    const gboolean deleted = g_file_delete(file, nullptr, &delete_error);
+    if (!deleted) {
+        const OperationStatus status = status_for_gerror(delete_error);
+        const std::string detail = delete_error != nullptr ? delete_error->message : "Unknown error";
+        if (delete_error != nullptr) {
+            g_error_free(delete_error);
+        }
+        g_object_unref(file);
+        return result(status,
+                      OperationPhase::Execute,
+                      {},
+                      "The Trash item could not be permanently deleted: " + detail);
+    }
+
+    const bool still_exists = g_file_query_exists(file, nullptr) != FALSE;
+    g_object_unref(file);
+    if (still_exists) {
+        return result(OperationStatus::VerificationFailure,
+                      OperationPhase::Verify,
+                      {},
+                      "Deletion completed but the Trash item still appears to exist.",
+                      true);
+    }
+
+    return result(OperationStatus::Success,
+                  OperationPhase::Complete,
+                  {},
+                  "Permanently deleted the Trash item.",
+                  true);
+}
+
+} // namespace infiltrator::files
