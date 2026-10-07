@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "destructive_operation_controller.hpp"
 
+#include "../core/operation_journal.hpp"
 #include "../core/recovery_operation_engine.hpp"
 
 #include <memory>
@@ -15,7 +16,26 @@ struct DestructiveTaskData {
     std::string source_path;
     std::string trash_uri;
     std::string original_path;
+    std::string journal_id;
 };
+
+const char *kind_name(const int kind)
+{
+    switch (kind) {
+    case 0:
+        return "trash";
+    case 1:
+        return "restore";
+    case 2:
+        return "restore-replace";
+    case 3:
+        return "delete-path";
+    case 4:
+        return "delete-uri";
+    default:
+        return "destructive-operation";
+    }
+}
 
 const char *busy_text(const int kind)
 {
@@ -379,8 +399,20 @@ void DestructiveOperationController::start_operation(const Kind kind,
         return;
     }
 
+    const int kind_value = static_cast<int>(kind);
+    const std::string &journal_source = source_path.empty() ? trash_uri : source_path;
+    OperationJournal journal;
+    const std::string journal_id = journal.begin(kind_name(kind_value),
+                                                 journal_source,
+                                                 original_path);
+    if (journal_id.empty()) {
+        show_alert("File operation",
+                   "The durable operation journal could not be written, so the mutation was not started.");
+        return;
+    }
+
     auto *data = new DestructiveTaskData{
-        static_cast<int>(kind), source_path, trash_uri, original_path};
+        kind_value, source_path, trash_uri, original_path, journal_id};
     busy_ = true;
     update_action_state();
     if (status_label_ != nullptr) {
@@ -423,6 +455,18 @@ void DestructiveOperationController::on_operation_thread(GTask *task,
     case Kind::DeleteUri:
         operation = engine.delete_uri(data->trash_uri);
         break;
+    }
+
+    OperationJournal journal;
+    if (!journal.finish(data->journal_id, kind_name(data->kind), operation)) {
+        if (operation.ok()) {
+            operation.status = OperationStatus::VerificationFailure;
+            operation.phase = OperationPhase::Verify;
+        }
+        if (!operation.message.empty()) {
+            operation.message += ' ';
+        }
+        operation.message += "The durable operation journal could not record completion.";
     }
 
     auto *returned = new OperationResult(std::move(operation));
