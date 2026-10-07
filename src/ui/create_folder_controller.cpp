@@ -2,6 +2,7 @@
 #include "create_folder_controller.hpp"
 
 #include "../core/operation_engine.hpp"
+#include "../core/operation_journal.hpp"
 
 #include <memory>
 #include <string>
@@ -14,6 +15,7 @@ struct CreateFolderTaskData {
     std::string parent_path;
     std::string parent_uri;
     std::string name;
+    std::string journal_id;
 };
 
 } // namespace
@@ -253,7 +255,17 @@ void CreateFolderController::submit_dialog()
         return;
     }
 
-    auto *data = new CreateFolderTaskData{path, uri, name};
+    OperationJournal journal;
+    const std::string journal_id = journal.begin("create-folder", path, name);
+    if (journal_id.empty()) {
+        g_free(path);
+        g_free(uri);
+        show_alert("New Folder",
+                   "The durable operation journal could not be written, so the folder was not created.");
+        return;
+    }
+
+    auto *data = new CreateFolderTaskData{path, uri, name, journal_id};
     g_free(path);
     g_free(uri);
 
@@ -282,6 +294,19 @@ void CreateFolderController::on_create_folder_thread(GTask *task,
     const auto *data = static_cast<const CreateFolderTaskData *>(task_data);
     OperationEngine engine;
     auto *result = new OperationResult(engine.create_directory(data->parent_path, data->name));
+
+    OperationJournal journal;
+    if (!journal.finish(data->journal_id, "create-folder", *result)) {
+        if (result->ok()) {
+            result->status = OperationStatus::VerificationFailure;
+            result->phase = OperationPhase::Verify;
+        }
+        if (!result->message.empty()) {
+            result->message += ' ';
+        }
+        result->message += "The durable operation journal could not record completion.";
+    }
+
     g_task_return_pointer(task, result, [](gpointer value) {
         delete static_cast<OperationResult *>(value);
     });
