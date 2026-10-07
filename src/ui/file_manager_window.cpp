@@ -58,6 +58,10 @@ FileManagerWindow::FileManagerWindow(GtkApplication *application)
 
 FileManagerWindow::~FileManagerWindow()
 {
+    if (primary_selection_ != nullptr) {
+        g_object_unref(primary_selection_);
+        primary_selection_ = nullptr;
+    }
     if (current_location_ != nullptr) {
         g_object_unref(current_location_);
         current_location_ = nullptr;
@@ -147,8 +151,13 @@ void FileManagerWindow::build_ui(GtkApplication *application)
     g_signal_connect(directory_list_, "notify::loading", G_CALLBACK(on_loading_changed), this);
     g_signal_connect(directory_list_, "notify::error", G_CALLBACK(on_loading_changed), this);
 
-    selection_ = gtk_single_selection_new(G_LIST_MODEL(directory_list_));
-    gtk_single_selection_set_autoselect(selection_, FALSE);
+    selection_ = gtk_multi_selection_new(G_LIST_MODEL(directory_list_));
+    primary_selection_ = gtk_single_selection_new(G_LIST_MODEL(directory_list_));
+    gtk_single_selection_set_autoselect(primary_selection_, FALSE);
+    g_signal_connect(selection_, "selection-changed",
+                     G_CALLBACK(on_multi_selection_changed), this);
+    g_signal_connect(primary_selection_, "notify::selected",
+                     G_CALLBACK(on_primary_selection_changed), this);
 
     GtkListItemFactory *factory = gtk_signal_list_item_factory_new();
     g_signal_connect(factory, "setup", G_CALLBACK(on_factory_setup), this);
@@ -281,6 +290,7 @@ void FileManagerWindow::navigate_to(GFile *file, const bool record_history)
     }
     current_location_ = G_FILE(g_object_ref(file));
 
+    gtk_selection_model_unselect_all(GTK_SELECTION_MODEL(selection_));
     gtk_directory_list_set_file(directory_list_, file);
     gtk_editable_set_text(GTK_EDITABLE(location_entry_), parse_name);
 
@@ -351,6 +361,47 @@ void FileManagerWindow::update_status()
     const guint count = g_list_model_get_n_items(G_LIST_MODEL(directory_list_));
     const std::string text = std::to_string(count) + (count == 1U ? " item" : " items");
     gtk_label_set_text(GTK_LABEL(status_label_), text.c_str());
+}
+
+void FileManagerWindow::sync_primary_from_multi()
+{
+    if (selection_syncing_ || selection_ == nullptr || primary_selection_ == nullptr) {
+        return;
+    }
+
+    selection_syncing_ = true;
+    guint selected_index = GTK_INVALID_LIST_POSITION;
+    guint selected_count = 0U;
+    const guint count = g_list_model_get_n_items(G_LIST_MODEL(directory_list_));
+    for (guint index = 0U; index < count; ++index) {
+        if (!gtk_selection_model_is_selected(GTK_SELECTION_MODEL(selection_), index)) {
+            continue;
+        }
+        ++selected_count;
+        if (selected_count == 1U) {
+            selected_index = index;
+        } else {
+            selected_index = GTK_INVALID_LIST_POSITION;
+            break;
+        }
+    }
+    gtk_single_selection_set_selected(primary_selection_, selected_index);
+    selection_syncing_ = false;
+}
+
+void FileManagerWindow::sync_multi_from_primary()
+{
+    if (selection_syncing_ || selection_ == nullptr || primary_selection_ == nullptr) {
+        return;
+    }
+
+    selection_syncing_ = true;
+    gtk_selection_model_unselect_all(GTK_SELECTION_MODEL(selection_));
+    const guint selected = gtk_single_selection_get_selected(primary_selection_);
+    if (selected != GTK_INVALID_LIST_POSITION) {
+        gtk_selection_model_select_item(GTK_SELECTION_MODEL(selection_), selected, TRUE);
+    }
+    selection_syncing_ = false;
 }
 
 GFile *FileManagerWindow::file_from_location_text(const char *text) const
@@ -549,6 +600,26 @@ void FileManagerWindow::on_launch_finished(GObject *source, GAsyncResult *result
             g_error_free(error);
         }
     }
+}
+
+void FileManagerWindow::on_multi_selection_changed(GtkSelectionModel *model,
+                                                   const guint position,
+                                                   const guint n_items,
+                                                   gpointer user_data)
+{
+    (void)model;
+    (void)position;
+    (void)n_items;
+    static_cast<FileManagerWindow *>(user_data)->sync_primary_from_multi();
+}
+
+void FileManagerWindow::on_primary_selection_changed(GObject *object,
+                                                     GParamSpec *pspec,
+                                                     gpointer user_data)
+{
+    (void)object;
+    (void)pspec;
+    static_cast<FileManagerWindow *>(user_data)->sync_multi_from_primary();
 }
 
 } // namespace infiltrator::files
