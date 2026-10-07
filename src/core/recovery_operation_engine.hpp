@@ -1,0 +1,27 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+#pragma once
+
+#include "operation_engine.hpp"
+
+#include <filesystem>
+#include <string_view>
+
+namespace infiltrator::files {
+
+class RecoveryOperationEngine final {
+public:
+    [[nodiscard]] OperationResult replace_copy(const std::filesystem::path &source,
+                                               const std::filesystem::path &destination_parent) const;
+    [[nodiscard]] OperationResult replace_move(const std::filesystem::path &source,
+                                               const std::filesystem::path &destination_parent) const;
+
+    [[nodiscard]] OperationResult trash_item(const std::filesystem::path &source) const;
+    [[nodiscard]] OperationResult restore_item(std::string_view trash_uri,
+                                               const std::filesystem::path &original_path,
+                                               bool replace_existing = false) const;
+
+    [[nodiscard]] OperationResult delete_item(const std::filesystem::path &source) const;
+    [[nodiscard]] OperationResult delete_uri(std::string_view uri) const;
+};
+
+} // namespace infiltrator::files
