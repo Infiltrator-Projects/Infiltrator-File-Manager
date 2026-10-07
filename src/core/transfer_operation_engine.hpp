@@ -34,6 +34,7 @@ public:
     [[nodiscard]] TransferProgress progress() const noexcept;
 
     // Progress-reporting contract used by the transfer implementation.
+    void begin_batch(std::uintmax_t bytes, std::uintmax_t items) noexcept;
     void set_total(std::uintmax_t bytes, std::uintmax_t items) noexcept;
     void add_bytes(std::uintmax_t bytes) noexcept;
     void add_item() noexcept;
@@ -42,6 +43,7 @@ private:
     std::atomic_bool cancelled_{false};
     mutable std::mutex progress_mutex_;
     TransferProgress progress_{};
+    bool batch_mode_{false};
 };
 
 class TransferOperationEngine final {
