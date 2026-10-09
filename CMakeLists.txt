@@ -100,6 +100,10 @@ if(BUILD_TESTING)
     target_link_libraries(location-model-test PRIVATE infiltrator-files-core)
     add_test(NAME location-model COMMAND location-model-test)
 
+    add_executable(mounted-places-test tests/mounted_places_test.cpp)
+    target_link_libraries(mounted-places-test PRIVATE infiltrator-files-core)
+    add_test(NAME mounted-places COMMAND mounted-places-test)
+
     add_executable(operation-engine-test tests/operation_engine_test.cpp)
     target_link_libraries(operation-engine-test PRIVATE infiltrator-files-core)
     add_test(NAME operation-engine COMMAND operation-engine-test)
