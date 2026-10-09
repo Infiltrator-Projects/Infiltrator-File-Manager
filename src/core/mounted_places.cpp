@@ -51,11 +51,20 @@ std::vector<MountedPlace> MountedPlacesMonitor::snapshot() const
     GList *mounts = g_volume_monitor_get_mounts(monitor_);
     for (GList *node = mounts; node != nullptr; node = node->next) {
         auto *mount = G_MOUNT(node->data);
+        if (g_mount_is_shadowed(mount)) {
+            continue;
+        }
+
         GFile *root = g_mount_get_root(mount);
-        char *uri = root != nullptr ? g_file_get_uri(root) : nullptr;
+        GFile *default_location = g_mount_get_default_location(mount);
+        GFile *target = default_location != nullptr ? default_location : root;
+        char *uri = target != nullptr ? g_file_get_uri(target) : nullptr;
+        char *root_uri = root != nullptr ? g_file_get_uri(root) : nullptr;
         char *name = g_mount_get_name(mount);
 
-        if (uri != nullptr && uri[0] != '\0' && std::string_view(uri) != "file:///") {
+        const bool meaningful_target = uri != nullptr && uri[0] != '\0';
+        const bool is_filesystem_root = root_uri != nullptr && std::string_view(root_uri) == "file:///";
+        if (meaningful_target && !is_filesystem_root) {
             bool removable = g_mount_can_eject(mount);
             if (GVolume *volume = g_mount_get_volume(mount); volume != nullptr) {
                 if (GDrive *drive = g_volume_get_drive(volume); drive != nullptr) {
@@ -64,11 +73,19 @@ std::vector<MountedPlace> MountedPlacesMonitor::snapshot() const
                 }
                 g_object_unref(volume);
             }
-            places.push_back(MountedPlace{name != nullptr ? name : uri, uri, removable});
+            places.push_back(MountedPlace{
+                name != nullptr ? name : uri,
+                uri,
+                root_uri != nullptr ? root_uri : uri,
+                removable});
         }
 
         g_free(name);
+        g_free(root_uri);
         g_free(uri);
+        if (default_location != nullptr) {
+            g_object_unref(default_location);
+        }
         if (root != nullptr) {
             g_object_unref(root);
         }
@@ -101,6 +118,38 @@ void MountedPlacesMonitor::notify_changed() const
     if (changed_) {
         changed_();
     }
+}
+
+bool location_is_within_mounted_places(const std::string &location_uri,
+                                       const std::vector<MountedPlace> &places)
+{
+    if (location_uri.empty()) {
+        return false;
+    }
+
+    GFile *location = g_file_new_for_uri(location_uri.c_str());
+    if (location == nullptr) {
+        return false;
+    }
+
+    bool within = false;
+    for (const MountedPlace &place : places) {
+        if (place.root_uri.empty()) {
+            continue;
+        }
+        GFile *root = g_file_new_for_uri(place.root_uri.c_str());
+        if (root == nullptr) {
+            continue;
+        }
+        within = g_file_equal(location, root) || g_file_has_prefix(location, root);
+        g_object_unref(root);
+        if (within) {
+            break;
+        }
+    }
+
+    g_object_unref(location);
+    return within;
 }
 
 } // namespace infiltrator::files
