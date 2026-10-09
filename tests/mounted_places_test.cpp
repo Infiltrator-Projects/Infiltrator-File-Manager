@@ -2,7 +2,6 @@
 #include "mounted_places.hpp"
 
 #include <cstddef>
-#include <string>
 #include <vector>
 
 using infiltrator::files::MountedPlace;
@@ -12,8 +11,8 @@ using infiltrator::files::location_is_within_mounted_places;
 int main()
 {
     const std::vector<MountedPlace> places{
-        {"Camera", "file:///media/user/CAMERA/DCIM", "file:///media/user/CAMERA", true},
         {"Archive", "file:///srv/archive", "file:///srv/archive", false},
+        {"Camera", "file:///media/user/CAMERA/DCIM", "file:///media/user/CAMERA", true},
     };
 
     if (!location_is_within_mounted_places("file:///media/user/CAMERA", places)) {
@@ -29,6 +28,22 @@ int main()
         return 4;
     }
 
+    const std::vector<MountedPlace> after_camera_disconnect{
+        {"Archive", "file:///srv/archive", "file:///srv/archive", false},
+    };
+    const bool camera_was_mounted =
+        location_is_within_mounted_places("file:///media/user/CAMERA/DCIM/100MEDIA", places);
+    const bool camera_is_still_mounted =
+        location_is_within_mounted_places("file:///media/user/CAMERA/DCIM/100MEDIA",
+                                          after_camera_disconnect);
+    if (!camera_was_mounted || camera_is_still_mounted) {
+        return 5;
+    }
+    if (!location_is_within_mounted_places("file:///srv/archive/project",
+                                           after_camera_disconnect)) {
+        return 6;
+    }
+
     // Repeated construction/destruction exercises the signal disconnect-before-unref lifetime path.
     for (std::size_t iteration = 0U; iteration < 32U; ++iteration) {
         MountedPlacesMonitor monitor([]() {});
@@ -37,16 +52,16 @@ int main()
         for (std::size_t index = 0U; index < snapshot.size(); ++index) {
             const MountedPlace &place = snapshot[index];
             if (place.uri.empty() || place.root_uri.empty() || place.root_uri == "file:///") {
-                return 5;
+                return 7;
             }
             if (index > 0U) {
                 const MountedPlace &previous = snapshot[index - 1U];
                 if (previous.name > place.name ||
                     (previous.name == place.name && previous.uri > place.uri)) {
-                    return 6;
+                    return 8;
                 }
                 if (previous.uri == place.uri) {
-                    return 7;
+                    return 9;
                 }
             }
         }
