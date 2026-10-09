@@ -92,17 +92,31 @@ std::vector<MountedPlace> MountedPlacesMonitor::snapshot() const
     }
     g_list_free_full(mounts, g_object_unref);
 
+    // URI is the sidebar identity. Sort equivalent URIs deterministically before
+    // deduplicating, then apply the user-facing name order for presentation.
     std::sort(places.begin(), places.end(), [](const MountedPlace &left, const MountedPlace &right) {
+        if (left.uri != right.uri) {
+            return left.uri < right.uri;
+        }
         if (left.name != right.name) {
             return left.name < right.name;
         }
-        return left.uri < right.uri;
+        if (left.root_uri != right.root_uri) {
+            return left.root_uri < right.root_uri;
+        }
+        return left.removable < right.removable;
     });
     places.erase(std::unique(places.begin(), places.end(),
                              [](const MountedPlace &left, const MountedPlace &right) {
                                  return left.uri == right.uri;
                              }),
                  places.end());
+    std::sort(places.begin(), places.end(), [](const MountedPlace &left, const MountedPlace &right) {
+        if (left.name != right.name) {
+            return left.name < right.name;
+        }
+        return left.uri < right.uri;
+    });
     return places;
 }
 
