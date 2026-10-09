@@ -52,6 +52,8 @@ The catalogue is intentionally broader than the current release. It is the produ
 
 Common's role is documented separately in [`docs/COMMON-INTEGRATION.md`](docs/COMMON-INTEGRATION.md). That ledger identifies which mechanics Files should inherit from Common, which semantics remain Files-owned, and which capabilities remain InfiltratorFS-owned.
 
+Product-level acceptance is defined in [`docs/PRODUCT-QUALITY.md`](docs/PRODUCT-QUALITY.md). It establishes the golden user journeys, engineering/interaction/aesthetic evidence, proportional-complexity rule and release-quality gate used to decide whether a tranche actually makes Files better for a person.
+
 ## Current 0.1.7 implementation
 
 The executable is `infiltrator-file-manager`, presented to the user as **Files**.
@@ -134,6 +136,7 @@ The build rejects a missing, wrong-version or wrong-commit Infiltratr Common che
 ## Design documents
 
 - [`docs/FEATURES.md`](docs/FEATURES.md) — complete intended feature catalogue and release sequencing.
+- [`docs/PRODUCT-QUALITY.md`](docs/PRODUCT-QUALITY.md) — golden user journeys and the acceptance discipline for proving that a tranche improves the product.
 - [`docs/COMMON-INTEGRATION.md`](docs/COMMON-INTEGRATION.md) — Common ownership and integration ledger.
 - [`docs/DESIGN.md`](docs/DESIGN.md) — product philosophy, InfiltratorFS relationship, quality bar and non-goals.
 - [`docs/RESEARCH-2026.md`](docs/RESEARCH-2026.md) — research review covering file retrieval, semantic systems, context, workflow, recoverability and interface design.
