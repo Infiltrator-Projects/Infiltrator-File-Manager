@@ -43,6 +43,12 @@ public:
     [[nodiscard]] GtkWindow *native_window() const noexcept { return GTK_WINDOW(window_); }
 
 private:
+    enum class ViewMode {
+        List,
+        Icons,
+        Compact,
+    };
+
     struct MountedPlaceRow {
         MountedPlace place;
         GtkWidget *row{nullptr};
@@ -55,8 +61,16 @@ private:
     static void on_location_activate(GtkEntry *entry, gpointer user_data);
     static void on_sidebar_row_activated(GtkListBox *box, GtkListBoxRow *row, gpointer user_data);
     static void on_list_activate(GtkListView *view, guint position, gpointer user_data);
+    static void on_grid_activate(GtkGridView *view, guint position, gpointer user_data);
+    static void on_view_mode_toggled(GtkToggleButton *button, gpointer user_data);
     static void on_factory_setup(GtkSignalListItemFactory *factory, GtkListItem *item, gpointer user_data);
     static void on_factory_bind(GtkSignalListItemFactory *factory, GtkListItem *item, gpointer user_data);
+    static void on_icon_factory_setup(GtkSignalListItemFactory *factory,
+                                      GtkListItem *item,
+                                      gpointer user_data);
+    static void on_icon_factory_bind(GtkSignalListItemFactory *factory,
+                                     GtkListItem *item,
+                                     gpointer user_data);
     static void on_loading_changed(GObject *object, GParamSpec *pspec, gpointer user_data);
     static void on_launch_finished(GObject *source, GAsyncResult *result, gpointer user_data);
     static void on_multi_selection_changed(GtkSelectionModel *model,
@@ -74,6 +88,8 @@ private:
     void mark_current_location_unavailable();
     void navigate_to(GFile *file, bool record_history);
     void navigate_history(std::ptrdiff_t delta);
+    void activate_position(guint position);
+    void set_view_mode(ViewMode mode);
     void update_navigation_state();
     void update_status();
     void sync_primary_from_multi();
@@ -86,6 +102,10 @@ private:
     GtkWidget *up_button_{nullptr};
     GtkWidget *location_entry_{nullptr};
     GtkWidget *sidebar_{nullptr};
+    GtkWidget *content_stack_{nullptr};
+    GtkWidget *list_view_button_{nullptr};
+    GtkWidget *icon_view_button_{nullptr};
+    GtkWidget *compact_view_button_{nullptr};
     GtkWidget *status_label_{nullptr};
     GtkWidget *spinner_{nullptr};
     std::unique_ptr<MountedPlacesMonitor> mounted_places_monitor_;
@@ -97,6 +117,7 @@ private:
     GFile *current_location_{nullptr};
     std::vector<Location> history_;
     std::size_t history_index_{0};
+    ViewMode view_mode_{ViewMode::List};
     bool operation_surface_installed_{false};
     bool selection_syncing_{false};
     bool current_location_available_{true};
