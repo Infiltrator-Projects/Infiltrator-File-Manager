@@ -144,6 +144,10 @@ void FileManagerWindow::build_ui(GtkApplication *application)
     }
     add_sidebar_location("Computer", "drive-harddisk-symbolic", "/");
     add_sidebar_location("Trash", "user-trash-symbolic", "trash:///");
+    mounted_places_monitor_ = std::make_unique<MountedPlacesMonitor>([this]() {
+        refresh_mounted_places();
+    });
+    refresh_mounted_places();
     g_signal_connect(sidebar_, "row-activated", G_CALLBACK(on_sidebar_row_activated), this);
 
     directory_list_ = gtk_directory_list_new(kDirectoryAttributes, nullptr);
@@ -254,6 +258,29 @@ void FileManagerWindow::add_sidebar_location(const char *title, const char *icon
     gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), make_sidebar_content(title, icon_name));
     g_object_set_data_full(G_OBJECT(row), "ifm-target", g_strdup(target), g_free);
     gtk_list_box_append(GTK_LIST_BOX(sidebar_), row);
+}
+
+void FileManagerWindow::refresh_mounted_places()
+{
+    for (GtkWidget *row : mounted_place_rows_) {
+        gtk_list_box_remove(GTK_LIST_BOX(sidebar_), row);
+    }
+    mounted_place_rows_.clear();
+
+    if (mounted_places_monitor_ == nullptr) {
+        return;
+    }
+
+    for (const MountedPlace &place : mounted_places_monitor_->snapshot()) {
+        GtkWidget *row = gtk_list_box_row_new();
+        const char *icon_name = place.removable ? "drive-removable-media-symbolic"
+                                                : "drive-harddisk-symbolic";
+        gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row),
+                                   make_sidebar_content(place.name.c_str(), icon_name));
+        g_object_set_data_full(G_OBJECT(row), "ifm-target", g_strdup(place.uri.c_str()), g_free);
+        gtk_list_box_append(GTK_LIST_BOX(sidebar_), row);
+        mounted_place_rows_.push_back(row);
+    }
 }
 
 void FileManagerWindow::navigate_to(GFile *file, const bool record_history)
