@@ -61,6 +61,7 @@ pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-2.0)
 add_library(infiltrator-files-core STATIC
     src/core/batch_transfer_engine.cpp
     src/core/location.cpp
+    src/core/mounted_places.cpp
     src/core/operation_engine.cpp
     src/core/operation_journal.cpp
     src/core/recovery_operation_engine.cpp
