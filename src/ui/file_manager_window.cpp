@@ -219,8 +219,13 @@ void FileManagerWindow::build_ui(GtkApplication *application)
     g_signal_connect(icon_factory, "setup", G_CALLBACK(on_icon_factory_setup), this);
     g_signal_connect(icon_factory, "bind", G_CALLBACK(on_icon_factory_bind), this);
 
-    GtkWidget *icons = gtk_grid_view_new(GTK_SELECTION_MODEL(selection_), icon_factory);
+    // GtkListView and GtkGridView consume a reference to the selection model. The
+    // list owns the original reference; each additional view therefore receives
+    // its own reference while all three continue to represent one selection state.
+    GtkWidget *icons = gtk_grid_view_new(
+        GTK_SELECTION_MODEL(g_object_ref(selection_)), icon_factory);
     gtk_grid_view_set_single_click_activate(GTK_GRID_VIEW(icons), FALSE);
+    gtk_grid_view_set_max_columns(GTK_GRID_VIEW(icons), 64U);
     gtk_widget_add_css_class(icons, "ifm-icon-grid");
     g_signal_connect(icons, "activate", G_CALLBACK(on_grid_activate), this);
 
@@ -230,8 +235,10 @@ void FileManagerWindow::build_ui(GtkApplication *application)
     g_signal_connect(compact_factory, "setup", G_CALLBACK(on_icon_factory_setup), this);
     g_signal_connect(compact_factory, "bind", G_CALLBACK(on_icon_factory_bind), this);
 
-    GtkWidget *compact = gtk_grid_view_new(GTK_SELECTION_MODEL(selection_), compact_factory);
+    GtkWidget *compact = gtk_grid_view_new(
+        GTK_SELECTION_MODEL(g_object_ref(selection_)), compact_factory);
     gtk_grid_view_set_single_click_activate(GTK_GRID_VIEW(compact), FALSE);
+    gtk_grid_view_set_max_columns(GTK_GRID_VIEW(compact), 64U);
     gtk_widget_add_css_class(compact, "ifm-icon-grid");
     gtk_widget_add_css_class(compact, "ifm-compact-grid");
     g_signal_connect(compact, "activate", G_CALLBACK(on_grid_activate), this);
