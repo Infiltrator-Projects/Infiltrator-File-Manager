@@ -43,9 +43,4 @@ private:
     const std::string &location_uri,
     const std::vector<MountedPlace> &places);
 
-[[nodiscard]] bool mounted_location_disappeared(
-    const std::string &location_uri,
-    const std::vector<MountedPlace> &previous_places,
-    const std::vector<MountedPlace> &current_places);
-
 } // namespace infiltrator::files
