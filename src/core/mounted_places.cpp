@@ -2,6 +2,7 @@
 #include "mounted_places.hpp"
 
 #include <algorithm>
+#include <string_view>
 #include <utility>
 
 namespace infiltrator::files {
