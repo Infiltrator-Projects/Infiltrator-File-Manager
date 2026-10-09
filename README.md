@@ -2,10 +2,10 @@
 
 Infiltrator File Manager is a clean-sheet file-management project for InfiltratorOS.
 
-**Current source version:** 0.1.7  
+**Current source version:** 0.1.8  
 **Shared foundation:** exact Infiltratr Common 1.19.38 gitlink, linked through the full Common target on InfiltratorOS/POSIX  
 **Desktop implementation:** C++20 + GTK 4/GIO  
-**Status:** early implementation; deterministic browsing and mutation foundation with multi-selection batch transfer, interruption inspection and verified metadata preservation
+**Status:** early implementation; deterministic browsing and mutation foundation with multi-selection batch transfer, interruption inspection, verified metadata preservation and live mounted/removable places
 
 The project does not exist to reproduce Nemo, Dolphin, Explorer, Finder or another existing file manager. Mature products, standards and current research are evidence. The project chooses the strongest justified mechanisms and owns its own interaction, operation and recovery semantics.
 
@@ -54,13 +54,15 @@ Common's role is documented separately in [`docs/COMMON-INTEGRATION.md`](docs/CO
 
 Product-level acceptance is defined in [`docs/PRODUCT-QUALITY.md`](docs/PRODUCT-QUALITY.md). It establishes the golden user journeys, engineering/interaction/aesthetic evidence, proportional-complexity rule and release-quality gate used to decide whether a tranche actually makes Files better for a person.
 
-## Current 0.1.7 implementation
+## Current 0.1.8 implementation
 
 The executable is `infiltrator-file-manager`, presented to the user as **Files**.
 
 It currently provides:
 
 - Home, Desktop, Documents, Downloads, Computer and Trash entry points;
+- live mounted local/removable places discovered through GIO, with shadowed implementation mounts excluded and each place opening at GIO's user-facing default location;
+- mounted-place availability tracking that distinguishes the most-specific supplying mount for nested mounts, reports a neutral unavailable state when that source disappears and only auto-restores the current view when GIO provides matching root-and-UUID evidence;
 - Back, Forward and Up navigation;
 - an editable location field accepting paths and URIs;
 - asynchronous, monitored directory enumeration through GTK/GIO;
@@ -110,11 +112,11 @@ It currently provides:
 - monitored refresh and automatic selection of newly created, renamed, copied or moved single items when their result appears in the current view;
 - separate creation, single-item operation, batch operation, destructive/recovery, journal-inspection and theme controllers so interaction policy does not accumulate inside `FileManagerWindow`;
 - the full `InfiltratrCommon::Common` build dependency on InfiltratorOS/POSIX, making Common's POSIX/state/I/O contracts available to the non-UI layers as they are introduced; and
-- a hosted build/test gate on every main-branch update, including batch preflight/policy/progress/cancellation, interrupted-journal recovery and permission/timestamp preservation qualification.
+- a hosted build/test gate on every main-branch update, including mounted-place identity qualification, batch preflight/policy/progress/cancellation, interrupted-journal recovery and permission/timestamp preservation qualification.
 
-Metadata preservation is deliberately honest in 0.1.7: permissions and modification timestamps are qualified for ordinary copy/cross-volume transfer paths, while ownership, ACLs, extended attributes, sparse-file preservation and symlink metadata remain future capability work. Multi-selection batch Copy/Move is present; destructive batch Trash/Delete is not yet claimed.
+Metadata preservation is deliberately honest in 0.1.8: permissions and modification timestamps are qualified for ordinary copy/cross-volume transfer paths, while ownership, ACLs, extended attributes, sparse-file preservation and symlink metadata remain future capability work. Multi-selection batch Copy/Move is present; destructive batch Trash/Delete is not yet claimed.
 
-The next implementation work moves into the richer file/object/capability model, mounted/removable volume discovery and remote-location/provider capability handling. Those are the next architecture layer rather than more ad-hoc mutation controls.
+The current architecture layer is closing the mounted/removable availability contract before expanding into richer file/object/capability and remote-location/provider handling. Those remain architecture work rather than reasons to add ad-hoc controls.
 
 Semantic/context indexing and InfiltratorFS-specific capability providers are also deliberately absent from this early executable. Ordinary file-manager correctness comes first.
 
@@ -131,7 +133,7 @@ ctest --test-dir build --output-on-failure
 ./build/infiltrator-file-manager
 ```
 
-The build rejects a missing, wrong-version or wrong-commit Infiltratr Common checkout. Version 0.1.7 is pinned to Common 1.19.38 at commit `04b5e219924ec0e65ef9d254c114fad4de0abd29`.
+The build rejects a missing, wrong-version or wrong-commit Infiltratr Common checkout. Version 0.1.8 is pinned to Common 1.19.38 at commit `04b5e219924ec0e65ef9d254c114fad4de0abd29`.
 
 ## Design documents
 
@@ -172,4 +174,4 @@ The implementation proceeds by proving boundaries rather than accumulating visib
 
 Each tranche must remain useful and testable without making later architectural layers authoritative by accident.
 
-Current browsing foundation also discovers mounted/removable places through GIO and removes their sidebar entries when the platform reports disappearance.
+Current browsing foundation discovers mounted/removable places through GIO, keeps them deterministically ordered, blocks nested-mount fall-through when a supplying mount disappears, and restores an unavailable current view automatically only when the returning mount's root and provider UUID prove the same source.

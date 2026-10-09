@@ -60,6 +60,7 @@ std::vector<MountedPlace> MountedPlacesMonitor::snapshot() const
         GFile *target = default_location != nullptr ? default_location : root;
         char *uri = target != nullptr ? g_file_get_uri(target) : nullptr;
         char *root_uri = root != nullptr ? g_file_get_uri(root) : nullptr;
+        char *mount_uuid = g_mount_get_uuid(mount);
         char *name = g_mount_get_name(mount);
 
         const bool meaningful_target = uri != nullptr && uri[0] != '\0';
@@ -77,10 +78,12 @@ std::vector<MountedPlace> MountedPlacesMonitor::snapshot() const
                 name != nullptr ? name : uri,
                 uri,
                 root_uri != nullptr ? root_uri : uri,
+                mount_uuid != nullptr ? mount_uuid : "",
                 removable});
         }
 
         g_free(name);
+        g_free(mount_uuid);
         g_free(root_uri);
         g_free(uri);
         if (default_location != nullptr) {
@@ -92,17 +95,23 @@ std::vector<MountedPlace> MountedPlacesMonitor::snapshot() const
     }
     g_list_free_full(mounts, g_object_unref);
 
-    // URI is the sidebar identity. Sort equivalent URIs deterministically before
-    // deduplicating, then apply the user-facing name order for presentation.
+    // URI is the sidebar target identity. Prefer the duplicate with provider UUID
+    // evidence so later availability transitions can be proven when GIO exposes it.
     std::sort(places.begin(), places.end(), [](const MountedPlace &left, const MountedPlace &right) {
         if (left.uri != right.uri) {
             return left.uri < right.uri;
+        }
+        if (left.mount_uuid.empty() != right.mount_uuid.empty()) {
+            return !left.mount_uuid.empty();
         }
         if (left.name != right.name) {
             return left.name < right.name;
         }
         if (left.root_uri != right.root_uri) {
             return left.root_uri < right.root_uri;
+        }
+        if (left.mount_uuid != right.mount_uuid) {
+            return left.mount_uuid < right.mount_uuid;
         }
         return left.removable < right.removable;
     });
@@ -134,36 +143,74 @@ void MountedPlacesMonitor::notify_changed() const
     }
 }
 
-bool location_is_within_mounted_places(const std::string &location_uri,
-                                       const std::vector<MountedPlace> &places)
+const MountedPlace *most_specific_mounted_place_for_location(
+    const std::string &location_uri,
+    const std::vector<MountedPlace> &places)
 {
     if (location_uri.empty()) {
-        return false;
+        return nullptr;
     }
 
     GFile *location = g_file_new_for_uri(location_uri.c_str());
     if (location == nullptr) {
-        return false;
+        return nullptr;
     }
 
-    bool within = false;
+    const MountedPlace *best = nullptr;
+    GFile *best_root = nullptr;
     for (const MountedPlace &place : places) {
         if (place.root_uri.empty()) {
             continue;
         }
+
         GFile *root = g_file_new_for_uri(place.root_uri.c_str());
         if (root == nullptr) {
             continue;
         }
-        within = g_file_equal(location, root) || g_file_has_prefix(location, root);
-        g_object_unref(root);
-        if (within) {
-            break;
+
+        const bool contains_location =
+            g_file_equal(location, root) || g_file_has_prefix(location, root);
+        bool more_specific = best == nullptr;
+        if (contains_location && best_root != nullptr && !g_file_equal(root, best_root)) {
+            more_specific = g_file_has_prefix(root, best_root);
+        }
+
+        if (contains_location && more_specific) {
+            if (best_root != nullptr) {
+                g_object_unref(best_root);
+            }
+            best = &place;
+            best_root = root;
+        } else {
+            g_object_unref(root);
         }
     }
 
+    if (best_root != nullptr) {
+        g_object_unref(best_root);
+    }
     g_object_unref(location);
-    return within;
+    return best;
+}
+
+bool mounted_places_have_same_source(const MountedPlace &left, const MountedPlace &right)
+{
+    if (left.root_uri.empty() || left.root_uri != right.root_uri) {
+        return false;
+    }
+    if (!left.mount_uuid.empty() || !right.mount_uuid.empty()) {
+        return !left.mount_uuid.empty() && left.mount_uuid == right.mount_uuid;
+    }
+    return true;
+}
+
+bool mounted_place_reappearance_is_proven(const MountedPlace &previous,
+                                          const MountedPlace &current)
+{
+    // A path can be reused by a different device/share after an unavailable interval.
+    // Automatic restoration therefore requires both the same mount root and provider UUID.
+    return !previous.mount_uuid.empty() && previous.root_uri == current.root_uri &&
+           previous.mount_uuid == current.mount_uuid;
 }
 
 } // namespace infiltrator::files

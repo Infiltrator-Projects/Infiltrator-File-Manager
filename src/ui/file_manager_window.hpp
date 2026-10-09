@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -71,7 +72,9 @@ private:
     void apply_theme();
     void add_sidebar_location(const char *title, const char *icon_name, const char *target);
     void refresh_mounted_places();
-    void mark_current_location_unavailable();
+    void reconcile_mounted_place_rows(const std::vector<MountedPlace> &places);
+    void mark_current_location_unavailable(const MountedPlace &source);
+    void restore_current_location_if_proven(const MountedPlace *source);
     void navigate_to(GFile *file, bool record_history);
     void navigate_history(std::ptrdiff_t delta);
     void update_navigation_state();
@@ -91,6 +94,8 @@ private:
     std::unique_ptr<MountedPlacesMonitor> mounted_places_monitor_;
     std::vector<MountedPlace> mounted_places_;
     std::vector<MountedPlaceRow> mounted_place_rows_;
+    std::optional<MountedPlace> unavailable_mounted_place_;
+    std::size_t static_sidebar_row_count_{0};
     GtkDirectoryList *directory_list_{nullptr};
     GtkMultiSelection *selection_{nullptr};
     GtkSingleSelection *primary_selection_{nullptr};

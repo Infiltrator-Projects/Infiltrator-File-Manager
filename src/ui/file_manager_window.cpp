@@ -15,6 +15,8 @@ namespace {
 constexpr const char *kDirectoryAttributes =
     "standard::name,standard::display-name,standard::type,standard::size,"
     "standard::content-type,standard::icon,standard::is-hidden,time::modified";
+constexpr const char *kLocationUnavailableStatus =
+    "Location unavailable. Reopen the location to retry.";
 
 std::string colour_hex(const std::uint32_t rgb)
 {
@@ -261,6 +263,7 @@ void FileManagerWindow::add_sidebar_location(const char *title, const char *icon
     gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), make_sidebar_content(title, icon_name));
     g_object_set_data_full(G_OBJECT(row), "ifm-target", g_strdup(target), g_free);
     gtk_list_box_append(GTK_LIST_BOX(sidebar_), row);
+    ++static_sidebar_row_count_;
 }
 
 void FileManagerWindow::refresh_mounted_places()
@@ -279,15 +282,37 @@ void FileManagerWindow::refresh_mounted_places()
         }
     }
 
-    const bool was_on_mounted_place =
-        location_is_within_mounted_places(current_uri, mounted_places_);
-    const bool remains_on_mounted_place =
-        location_is_within_mounted_places(current_uri, next_places);
+    const MountedPlace *previous_source =
+        most_specific_mounted_place_for_location(current_uri, mounted_places_);
+    std::optional<MountedPlace> previous_source_copy;
+    if (previous_source != nullptr) {
+        previous_source_copy = *previous_source;
+    }
+    const MountedPlace *next_source =
+        most_specific_mounted_place_for_location(current_uri, next_places);
 
+    reconcile_mounted_place_rows(next_places);
+    mounted_places_ = next_places;
+
+    if (current_location_available_) {
+        if (previous_source_copy.has_value() &&
+            (next_source == nullptr ||
+             !mounted_places_have_same_source(*previous_source_copy, *next_source))) {
+            mark_current_location_unavailable(*previous_source_copy);
+        }
+        return;
+    }
+
+    restore_current_location_if_proven(next_source);
+}
+
+void FileManagerWindow::reconcile_mounted_place_rows(const std::vector<MountedPlace> &places)
+{
     for (auto it = mounted_place_rows_.begin(); it != mounted_place_rows_.end();) {
-        const bool still_present = std::any_of(next_places.begin(), next_places.end(),
+        const bool still_present = std::any_of(places.begin(), places.end(),
                                                [&it](const MountedPlace &place) {
-                                                   return place.uri == it->place.uri;
+                                                   return mounted_places_have_same_source(
+                                                       it->place, place);
                                                });
         if (still_present) {
             ++it;
@@ -297,10 +322,10 @@ void FileManagerWindow::refresh_mounted_places()
         it = mounted_place_rows_.erase(it);
     }
 
-    for (const MountedPlace &place : next_places) {
+    for (const MountedPlace &place : places) {
         auto existing = std::find_if(mounted_place_rows_.begin(), mounted_place_rows_.end(),
                                      [&place](const MountedPlaceRow &entry) {
-                                         return entry.place.uri == place.uri;
+                                         return mounted_places_have_same_source(entry.place, place);
                                      });
         if (existing != mounted_place_rows_.end()) {
             if (existing->place.name != place.name ||
@@ -309,6 +334,10 @@ void FileManagerWindow::refresh_mounted_places()
                                                         : "drive-harddisk-symbolic";
                 gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(existing->row),
                                            make_sidebar_content(place.name.c_str(), icon_name));
+            }
+            if (existing->place.uri != place.uri) {
+                g_object_set_data_full(G_OBJECT(existing->row), "ifm-target",
+                                       g_strdup(place.uri.c_str()), g_free);
             }
             existing->place = place;
             continue;
@@ -324,19 +353,47 @@ void FileManagerWindow::refresh_mounted_places()
         mounted_place_rows_.push_back(MountedPlaceRow{place, row});
     }
 
-    mounted_places_ = next_places;
-    if (was_on_mounted_place && !remains_on_mounted_place) {
-        mark_current_location_unavailable();
+    std::vector<MountedPlaceRow> ordered_rows;
+    ordered_rows.reserve(places.size());
+    for (const MountedPlace &place : places) {
+        auto existing = std::find_if(mounted_place_rows_.begin(), mounted_place_rows_.end(),
+                                     [&place](const MountedPlaceRow &entry) {
+                                         return mounted_places_have_same_source(entry.place, place);
+                                     });
+        if (existing != mounted_place_rows_.end()) {
+            ordered_rows.push_back(*existing);
+        }
+    }
+    mounted_place_rows_.swap(ordered_rows);
+
+    for (std::size_t index = 0U; index < mounted_place_rows_.size(); ++index) {
+        GtkWidget *row = mounted_place_rows_[index].row;
+        const int expected_index = static_cast<int>(static_sidebar_row_count_ + index);
+        if (gtk_list_box_row_get_index(GTK_LIST_BOX_ROW(row)) == expected_index) {
+            continue;
+        }
+
+        const bool had_focus = gtk_widget_has_focus(row);
+        // Keep a strong reference while reparenting so ordering changes preserve
+        // the GtkListBoxRow identity used by keyboard and assistive-technology state.
+        g_object_ref(row);
+        gtk_list_box_remove(GTK_LIST_BOX(sidebar_), row);
+        gtk_list_box_insert(GTK_LIST_BOX(sidebar_), row, expected_index);
+        if (had_focus) {
+            gtk_widget_grab_focus(row);
+        }
+        g_object_unref(row);
     }
 }
 
-void FileManagerWindow::mark_current_location_unavailable()
+void FileManagerWindow::mark_current_location_unavailable(const MountedPlace &source)
 {
     if (!current_location_available_) {
         return;
     }
 
     current_location_available_ = false;
+    unavailable_mounted_place_ = source;
     if (selection_ != nullptr) {
         gtk_selection_model_unselect_all(GTK_SELECTION_MODEL(selection_));
     }
@@ -348,10 +405,30 @@ void FileManagerWindow::mark_current_location_unavailable()
         gtk_widget_set_visible(spinner_, FALSE);
     }
     if (status_label_ != nullptr) {
-        gtk_label_set_text(GTK_LABEL(status_label_),
-                           "Location unavailable — device was disconnected.");
+        gtk_label_set_text(GTK_LABEL(status_label_), kLocationUnavailableStatus);
     }
     update_navigation_state();
+}
+
+void FileManagerWindow::restore_current_location_if_proven(const MountedPlace *source)
+{
+    if (current_location_available_ || source == nullptr ||
+        !unavailable_mounted_place_.has_value() || current_location_ == nullptr ||
+        directory_list_ == nullptr) {
+        return;
+    }
+    if (!mounted_place_reappearance_is_proven(*unavailable_mounted_place_, *source)) {
+        return;
+    }
+
+    current_location_available_ = true;
+    unavailable_mounted_place_.reset();
+    if (selection_ != nullptr) {
+        gtk_selection_model_unselect_all(GTK_SELECTION_MODEL(selection_));
+    }
+    gtk_directory_list_set_file(directory_list_, current_location_);
+    update_navigation_state();
+    update_status();
 }
 
 void FileManagerWindow::navigate_to(GFile *file, const bool record_history)
@@ -388,6 +465,7 @@ void FileManagerWindow::navigate_to(GFile *file, const bool record_history)
     }
     current_location_ = G_FILE(g_object_ref(file));
     current_location_available_ = true;
+    unavailable_mounted_place_.reset();
 
     gtk_selection_model_unselect_all(GTK_SELECTION_MODEL(selection_));
     gtk_directory_list_set_file(directory_list_, file);
@@ -445,8 +523,7 @@ void FileManagerWindow::update_status()
     if (!current_location_available_) {
         gtk_spinner_stop(GTK_SPINNER(spinner_));
         gtk_widget_set_visible(spinner_, FALSE);
-        gtk_label_set_text(GTK_LABEL(status_label_),
-                           "Location unavailable — device was disconnected.");
+        gtk_label_set_text(GTK_LABEL(status_label_), kLocationUnavailableStatus);
         return;
     }
 
