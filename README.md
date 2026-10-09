@@ -171,3 +171,5 @@ The implementation proceeds by proving boundaries rather than accumulating visib
 8. continued accessibility, performance, visual and interaction refinement against the Common/Infiltrator design contract.
 
 Each tranche must remain useful and testable without making later architectural layers authoritative by accident.
+
+Current browsing foundation also discovers mounted/removable places through GIO and removes their sidebar entries when the platform reports disappearance.
