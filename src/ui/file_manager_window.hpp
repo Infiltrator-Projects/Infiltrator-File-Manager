@@ -43,6 +43,11 @@ public:
     [[nodiscard]] GtkWindow *native_window() const noexcept { return GTK_WINDOW(window_); }
 
 private:
+    struct MountedPlaceRow {
+        MountedPlace place;
+        GtkWidget *row{nullptr};
+    };
+
     static void on_window_finalized(gpointer user_data, GObject *where_object_was);
     static void on_back_clicked(GtkButton *button, gpointer user_data);
     static void on_forward_clicked(GtkButton *button, gpointer user_data);
@@ -66,6 +71,7 @@ private:
     void apply_theme();
     void add_sidebar_location(const char *title, const char *icon_name, const char *target);
     void refresh_mounted_places();
+    void mark_current_location_unavailable();
     void navigate_to(GFile *file, bool record_history);
     void navigate_history(std::ptrdiff_t delta);
     void update_navigation_state();
@@ -83,7 +89,8 @@ private:
     GtkWidget *status_label_{nullptr};
     GtkWidget *spinner_{nullptr};
     std::unique_ptr<MountedPlacesMonitor> mounted_places_monitor_;
-    std::vector<GtkWidget *> mounted_place_rows_;
+    std::vector<MountedPlace> mounted_places_;
+    std::vector<MountedPlaceRow> mounted_place_rows_;
     GtkDirectoryList *directory_list_{nullptr};
     GtkMultiSelection *selection_{nullptr};
     GtkSingleSelection *primary_selection_{nullptr};
@@ -92,6 +99,7 @@ private:
     std::size_t history_index_{0};
     bool operation_surface_installed_{false};
     bool selection_syncing_{false};
+    bool current_location_available_{true};
 };
 
 } // namespace infiltrator::files
