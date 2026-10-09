@@ -42,6 +42,15 @@ GtkWidget *make_sidebar_content(const char *title, const char *icon_name)
     return box;
 }
 
+GtkWidget *make_scroller(GtkWidget *child)
+{
+    GtkWidget *scroll = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll),
+                                   GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), child);
+    return scroll;
+}
+
 } // namespace
 
 FileManagerWindow::FileManagerWindow(GtkApplication *application)
@@ -109,6 +118,35 @@ void FileManagerWindow::build_ui(GtkApplication *application)
     gtk_entry_set_placeholder_text(GTK_ENTRY(location_entry_), "Location");
     gtk_header_bar_set_title_widget(GTK_HEADER_BAR(header), location_entry_);
 
+    GtkWidget *view_switcher = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_add_css_class(view_switcher, "linked");
+    gtk_widget_add_css_class(view_switcher, "ifm-view-switcher");
+
+    list_view_button_ = gtk_toggle_button_new_with_label("List");
+    icon_view_button_ = gtk_toggle_button_new_with_label("Icons");
+    compact_view_button_ = gtk_toggle_button_new_with_label("Small");
+    gtk_widget_set_tooltip_text(list_view_button_, "List view");
+    gtk_widget_set_tooltip_text(icon_view_button_, "Icon view");
+    gtk_widget_set_tooltip_text(compact_view_button_, "Small icon view");
+
+    gtk_toggle_button_set_group(GTK_TOGGLE_BUTTON(icon_view_button_),
+                                GTK_TOGGLE_BUTTON(list_view_button_));
+    gtk_toggle_button_set_group(GTK_TOGGLE_BUTTON(compact_view_button_),
+                                GTK_TOGGLE_BUTTON(list_view_button_));
+
+    g_object_set_data(G_OBJECT(list_view_button_), "ifm-view-mode", GINT_TO_POINTER(1));
+    g_object_set_data(G_OBJECT(icon_view_button_), "ifm-view-mode", GINT_TO_POINTER(2));
+    g_object_set_data(G_OBJECT(compact_view_button_), "ifm-view-mode", GINT_TO_POINTER(3));
+
+    g_signal_connect(list_view_button_, "toggled", G_CALLBACK(on_view_mode_toggled), this);
+    g_signal_connect(icon_view_button_, "toggled", G_CALLBACK(on_view_mode_toggled), this);
+    g_signal_connect(compact_view_button_, "toggled", G_CALLBACK(on_view_mode_toggled), this);
+
+    gtk_box_append(GTK_BOX(view_switcher), list_view_button_);
+    gtk_box_append(GTK_BOX(view_switcher), icon_view_button_);
+    gtk_box_append(GTK_BOX(view_switcher), compact_view_button_);
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(header), view_switcher);
+
     g_signal_connect(back_button_, "clicked", G_CALLBACK(on_back_clicked), this);
     g_signal_connect(forward_button_, "clicked", G_CALLBACK(on_forward_clicked), this);
     g_signal_connect(up_button_, "clicked", G_CALLBACK(on_up_clicked), this);
@@ -166,22 +204,55 @@ void FileManagerWindow::build_ui(GtkApplication *application)
     g_signal_connect(primary_selection_, "notify::selected",
                      G_CALLBACK(on_primary_selection_changed), this);
 
-    GtkListItemFactory *factory = gtk_signal_list_item_factory_new();
-    g_signal_connect(factory, "setup", G_CALLBACK(on_factory_setup), this);
-    g_signal_connect(factory, "bind", G_CALLBACK(on_factory_bind), this);
+    GtkListItemFactory *list_factory = gtk_signal_list_item_factory_new();
+    g_signal_connect(list_factory, "setup", G_CALLBACK(on_factory_setup), this);
+    g_signal_connect(list_factory, "bind", G_CALLBACK(on_factory_bind), this);
 
-    GtkWidget *list = gtk_list_view_new(GTK_SELECTION_MODEL(selection_), factory);
+    GtkWidget *list = gtk_list_view_new(GTK_SELECTION_MODEL(selection_), list_factory);
     gtk_list_view_set_single_click_activate(GTK_LIST_VIEW(list), FALSE);
     gtk_widget_add_css_class(list, "ifm-file-list");
     g_signal_connect(list, "activate", G_CALLBACK(on_list_activate), this);
 
-    GtkWidget *content_scroll = gtk_scrolled_window_new();
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(content_scroll),
-                                   GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
-    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(content_scroll), list);
-    gtk_paned_set_end_child(GTK_PANED(paned), content_scroll);
+    GtkListItemFactory *icon_factory = gtk_signal_list_item_factory_new();
+    g_object_set_data(G_OBJECT(icon_factory), "ifm-icon-size", GINT_TO_POINTER(64));
+    g_object_set_data(G_OBJECT(icon_factory), "ifm-tile-width", GINT_TO_POINTER(132));
+    g_signal_connect(icon_factory, "setup", G_CALLBACK(on_icon_factory_setup), this);
+    g_signal_connect(icon_factory, "bind", G_CALLBACK(on_icon_factory_bind), this);
+
+    // GtkListView and GtkGridView consume a reference to the selection model. The
+    // list owns the original reference; each additional view therefore receives
+    // its own reference while all three continue to represent one selection state.
+    GtkWidget *icons = gtk_grid_view_new(
+        GTK_SELECTION_MODEL(g_object_ref(selection_)), icon_factory);
+    gtk_grid_view_set_single_click_activate(GTK_GRID_VIEW(icons), FALSE);
+    gtk_grid_view_set_max_columns(GTK_GRID_VIEW(icons), 64U);
+    gtk_widget_add_css_class(icons, "ifm-icon-grid");
+    g_signal_connect(icons, "activate", G_CALLBACK(on_grid_activate), this);
+
+    GtkListItemFactory *compact_factory = gtk_signal_list_item_factory_new();
+    g_object_set_data(G_OBJECT(compact_factory), "ifm-icon-size", GINT_TO_POINTER(32));
+    g_object_set_data(G_OBJECT(compact_factory), "ifm-tile-width", GINT_TO_POINTER(92));
+    g_signal_connect(compact_factory, "setup", G_CALLBACK(on_icon_factory_setup), this);
+    g_signal_connect(compact_factory, "bind", G_CALLBACK(on_icon_factory_bind), this);
+
+    GtkWidget *compact = gtk_grid_view_new(
+        GTK_SELECTION_MODEL(g_object_ref(selection_)), compact_factory);
+    gtk_grid_view_set_single_click_activate(GTK_GRID_VIEW(compact), FALSE);
+    gtk_grid_view_set_max_columns(GTK_GRID_VIEW(compact), 64U);
+    gtk_widget_add_css_class(compact, "ifm-icon-grid");
+    gtk_widget_add_css_class(compact, "ifm-compact-grid");
+    g_signal_connect(compact, "activate", G_CALLBACK(on_grid_activate), this);
+
+    content_stack_ = gtk_stack_new();
+    gtk_stack_set_transition_type(GTK_STACK(content_stack_), GTK_STACK_TRANSITION_TYPE_NONE);
+    gtk_stack_add_named(GTK_STACK(content_stack_), make_scroller(list), "list");
+    gtk_stack_add_named(GTK_STACK(content_stack_), make_scroller(icons), "icons");
+    gtk_stack_add_named(GTK_STACK(content_stack_), make_scroller(compact), "compact");
+    gtk_paned_set_end_child(GTK_PANED(paned), content_stack_);
     gtk_paned_set_resize_end_child(GTK_PANED(paned), TRUE);
     gtk_paned_set_shrink_end_child(GTK_PANED(paned), FALSE);
+
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(list_view_button_), TRUE);
 
     GtkWidget *status = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     gtk_widget_set_margin_start(status, 12);
@@ -228,11 +299,15 @@ void FileManagerWindow::apply_theme()
         << "; border-right: 1px solid " << colour_hex(palette->border_rgb) << "; }\n"
         << ".ifm-sidebar row { margin: 2px 6px; border-radius: " << metrics->control_radius << "px; }\n"
         << ".ifm-sidebar row:hover { background: " << colour_hex(palette->surface_hover_rgb) << "; }\n"
-        << ".ifm-file-list { background: " << colour_hex(palette->background_rgb) << "; }\n"
+        << ".ifm-file-list, .ifm-icon-grid { background: " << colour_hex(palette->background_rgb) << "; }\n"
         << ".ifm-file-list row { margin: 2px 8px; border-radius: " << metrics->control_radius << "px; }\n"
         << ".ifm-file-list row:hover { background: " << colour_hex(palette->surface_hover_rgb) << "; }\n"
         << ".ifm-file-list row:selected { background: " << colour_hex(palette->selection_background_rgb)
         << "; color: " << colour_hex(palette->selection_foreground_rgb) << "; }\n"
+        << ".ifm-icon-tile { margin: 4px; padding: 8px 6px; border-radius: "
+        << metrics->control_radius << "px; }\n"
+        << ".ifm-icon-tile:hover { background: " << colour_hex(palette->surface_hover_rgb) << "; }\n"
+        << ".ifm-compact-tile { margin: 2px; padding: 6px 4px; }\n"
         << ".ifm-file-name { color: " << colour_hex(palette->text_rgb) << "; }\n"
         << ".ifm-file-meta { color: " << colour_hex(palette->muted_rgb) << "; font-size: 0.88em; }\n"
         << ".ifm-status { background: " << colour_hex(palette->panel_rgb)
@@ -420,6 +495,59 @@ void FileManagerWindow::navigate_history(const std::ptrdiff_t delta)
     g_object_unref(file);
 }
 
+void FileManagerWindow::activate_position(const guint position)
+{
+    if (current_location_ == nullptr) {
+        return;
+    }
+
+    GFileInfo *info = G_FILE_INFO(g_list_model_get_item(G_LIST_MODEL(directory_list_), position));
+    if (info == nullptr) {
+        return;
+    }
+
+    const char *name = g_file_info_get_name(info);
+    if (name == nullptr) {
+        g_object_unref(info);
+        return;
+    }
+
+    GFile *child = g_file_get_child(current_location_, name);
+    if (g_file_info_get_file_type(info) == G_FILE_TYPE_DIRECTORY) {
+        navigate_to(child, true);
+    } else {
+        char *uri = g_file_get_uri(child);
+        if (uri != nullptr) {
+            g_app_info_launch_default_for_uri_async(uri, nullptr, nullptr,
+                                                    &FileManagerWindow::on_launch_finished, this);
+            g_free(uri);
+        }
+    }
+
+    g_object_unref(child);
+    g_object_unref(info);
+}
+
+void FileManagerWindow::set_view_mode(const ViewMode mode)
+{
+    if (content_stack_ == nullptr) {
+        return;
+    }
+
+    view_mode_ = mode;
+    switch (mode) {
+    case ViewMode::List:
+        gtk_stack_set_visible_child_name(GTK_STACK(content_stack_), "list");
+        break;
+    case ViewMode::Icons:
+        gtk_stack_set_visible_child_name(GTK_STACK(content_stack_), "icons");
+        break;
+    case ViewMode::Compact:
+        gtk_stack_set_visible_child_name(GTK_STACK(content_stack_), "compact");
+        break;
+    }
+}
+
 void FileManagerWindow::update_navigation_state()
 {
     gtk_widget_set_sensitive(back_button_, !history_.empty() && history_index_ > 0U);
@@ -583,36 +711,28 @@ void FileManagerWindow::on_sidebar_row_activated(GtkListBox *box, GtkListBoxRow 
 void FileManagerWindow::on_list_activate(GtkListView *view, const guint position, gpointer user_data)
 {
     (void)view;
+    static_cast<FileManagerWindow *>(user_data)->activate_position(position);
+}
+
+void FileManagerWindow::on_grid_activate(GtkGridView *view, const guint position, gpointer user_data)
+{
+    (void)view;
+    static_cast<FileManagerWindow *>(user_data)->activate_position(position);
+}
+
+void FileManagerWindow::on_view_mode_toggled(GtkToggleButton *button, gpointer user_data)
+{
+    if (!gtk_toggle_button_get_active(button)) {
+        return;
+    }
+
+    const int encoded = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "ifm-view-mode"));
+    if (encoded < 1 || encoded > 3) {
+        return;
+    }
+
     auto *self = static_cast<FileManagerWindow *>(user_data);
-    if (self->current_location_ == nullptr) {
-        return;
-    }
-
-    GFileInfo *info = G_FILE_INFO(g_list_model_get_item(G_LIST_MODEL(self->directory_list_), position));
-    if (info == nullptr) {
-        return;
-    }
-
-    const char *name = g_file_info_get_name(info);
-    if (name == nullptr) {
-        g_object_unref(info);
-        return;
-    }
-
-    GFile *child = g_file_get_child(self->current_location_, name);
-    if (g_file_info_get_file_type(info) == G_FILE_TYPE_DIRECTORY) {
-        self->navigate_to(child, true);
-    } else {
-        char *uri = g_file_get_uri(child);
-        if (uri != nullptr) {
-            g_app_info_launch_default_for_uri_async(uri, nullptr, nullptr,
-                                                    &FileManagerWindow::on_launch_finished, self);
-            g_free(uri);
-        }
-    }
-
-    g_object_unref(child);
-    g_object_unref(info);
+    self->set_view_mode(static_cast<ViewMode>(encoded - 1));
 }
 
 void FileManagerWindow::on_factory_setup(GtkSignalListItemFactory *factory,
@@ -687,6 +807,73 @@ void FileManagerWindow::on_factory_bind(GtkSignalListItemFactory *factory,
         gtk_label_set_text(meta, formatted_size != nullptr ? formatted_size : "File");
         g_free(formatted_size);
     }
+}
+
+void FileManagerWindow::on_icon_factory_setup(GtkSignalListItemFactory *factory,
+                                              GtkListItem *item,
+                                              gpointer user_data)
+{
+    (void)user_data;
+
+    const int icon_size = std::max(24, GPOINTER_TO_INT(
+        g_object_get_data(G_OBJECT(factory), "ifm-icon-size")));
+    const int tile_width = std::max(72, GPOINTER_TO_INT(
+        g_object_get_data(G_OBJECT(factory), "ifm-tile-width")));
+
+    GtkWidget *tile = gtk_box_new(GTK_ORIENTATION_VERTICAL, icon_size >= 48 ? 7 : 4);
+    gtk_widget_set_size_request(tile, tile_width, -1);
+    gtk_widget_set_halign(tile, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(tile, GTK_ALIGN_START);
+    gtk_widget_add_css_class(tile, "ifm-icon-tile");
+    if (icon_size < 48) {
+        gtk_widget_add_css_class(tile, "ifm-compact-tile");
+    }
+
+    GtkWidget *icon = gtk_image_new();
+    gtk_image_set_pixel_size(GTK_IMAGE(icon), icon_size);
+    gtk_widget_set_halign(icon, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(tile), icon);
+
+    GtkWidget *name = gtk_label_new("");
+    gtk_label_set_xalign(GTK_LABEL(name), 0.5F);
+    gtk_label_set_justify(GTK_LABEL(name), GTK_JUSTIFY_CENTER);
+    gtk_label_set_wrap(GTK_LABEL(name), TRUE);
+    gtk_label_set_wrap_mode(GTK_LABEL(name), PANGO_WRAP_WORD_CHAR);
+    gtk_label_set_lines(GTK_LABEL(name), icon_size >= 48 ? 2 : 1);
+    gtk_label_set_ellipsize(GTK_LABEL(name), PANGO_ELLIPSIZE_END);
+    gtk_label_set_max_width_chars(GTK_LABEL(name), icon_size >= 48 ? 18 : 12);
+    gtk_widget_add_css_class(name, "ifm-file-name");
+    gtk_box_append(GTK_BOX(tile), name);
+
+    g_object_set_data(G_OBJECT(tile), "ifm-icon", icon);
+    g_object_set_data(G_OBJECT(tile), "ifm-name", name);
+    gtk_list_item_set_child(item, tile);
+}
+
+void FileManagerWindow::on_icon_factory_bind(GtkSignalListItemFactory *factory,
+                                             GtkListItem *item,
+                                             gpointer user_data)
+{
+    (void)factory;
+    (void)user_data;
+
+    auto *info = G_FILE_INFO(gtk_list_item_get_item(item));
+    GtkWidget *tile = gtk_list_item_get_child(item);
+    if (info == nullptr || tile == nullptr) {
+        return;
+    }
+
+    auto *icon = GTK_IMAGE(g_object_get_data(G_OBJECT(tile), "ifm-icon"));
+    auto *name = GTK_LABEL(g_object_get_data(G_OBJECT(tile), "ifm-name"));
+
+    if (GIcon *file_icon = g_file_info_get_icon(info); file_icon != nullptr) {
+        gtk_image_set_from_gicon(icon, file_icon);
+    } else {
+        gtk_image_set_from_icon_name(icon, "text-x-generic-symbolic");
+    }
+
+    const char *display_name = g_file_info_get_display_name(info);
+    gtk_label_set_text(name, display_name != nullptr ? display_name : "");
 }
 
 void FileManagerWindow::on_loading_changed(GObject *object, GParamSpec *pspec, gpointer user_data)

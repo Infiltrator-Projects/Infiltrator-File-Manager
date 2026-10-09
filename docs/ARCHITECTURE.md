@@ -314,6 +314,18 @@ The architecture nevertheless assumes several information roles:
 
 UI concepts must map to the same underlying application model rather than implementing independent file logic per view.
 
+### Browse presentation invariants
+
+Directory view mode is presentation state over one shared browse model. The initial production contract distinguishes three task-oriented presentations: **Detail / analytical**, **Visual**, and **Compact / dense scan**.
+
+The presentation layer may create different GTK/view objects to render those modes efficiently, but it must not duplicate navigation, selection authority, sorting policy, activation behaviour, drag/drop policy, context-action policy or file-operation logic. A switch of presentation must preserve the user's logical selection and current location and must not trigger a filesystem mutation or reinterpret the underlying objects.
+
+View identity is separate from density. A Visual view may support different icon/thumbnail sizes without becoming a different semantic view. Detail may vary row density or columns. Compact remains a distinct multi-column small-icon-plus-label composition rather than a shrunken Visual grid.
+
+The remembered presentation is application-level presentation state. Global persistence across ordinary restart is the baseline. Per-location presentation memory may be layered on later, but must not be required by the browse model and must not create hidden filesystem semantics.
+
+All three presentations must consume the same asynchronous directory data and remain compatible with large-directory virtualisation. Switching presentation should not cause duplicate enumeration or independent metadata pipelines unless measurement proves a view-specific enrichment is required.
+
 ## 11. Security and privacy
 
 File content, paths, filenames, metadata, semantic vectors and activity relationships are private user information.
@@ -351,7 +363,10 @@ Qualification should eventually include:
 - search-index corruption/rebuild;
 - semantic subsystem unavailable/corrupt;
 - mixed filesystems in one operation;
-- InfiltratorFS history/object identity integration; and
+- InfiltratorFS history/object identity integration;
+- view switching with preserved selection/sort/location state;
+- large-directory behaviour in Detail, Visual and Compact presentations;
+- narrow-window and Day/Night rendering across presentations; and
 - accessibility/keyboard-only workflows.
 
 The success path, failure path and recovery path are all part of the feature.

@@ -200,8 +200,9 @@ void ThemeController::apply_theme()
         << "; border-right-color: " << colour_hex(palette->border_rgb) << "; }\n"
         << ".ifm-sidebar row:hover { background: "
         << colour_hex(palette->surface_hover_rgb) << "; }\n"
-        << ".ifm-file-list { background: " << colour_hex(palette->background_rgb) << "; }\n"
-        << ".ifm-file-list row:hover { background: "
+        << ".ifm-file-list, .ifm-icon-grid { background: "
+        << colour_hex(palette->background_rgb) << "; }\n"
+        << ".ifm-file-list row:hover, .ifm-icon-tile:hover { background: "
         << colour_hex(palette->surface_hover_rgb) << "; }\n"
         << ".ifm-file-list row:selected { background: "
         << colour_hex(palette->selection_background_rgb)
