@@ -2,6 +2,7 @@
 #pragma once
 
 #include "../core/location.hpp"
+#include "../core/mounted_places.hpp"
 #include "batch_item_operation_controller.hpp"
 #include "create_folder_controller.hpp"
 #include "destructive_operation_controller.hpp"
@@ -12,6 +13,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -63,6 +65,7 @@ private:
     void build_ui(GtkApplication *application);
     void apply_theme();
     void add_sidebar_location(const char *title, const char *icon_name, const char *target);
+    void refresh_mounted_places();
     void navigate_to(GFile *file, bool record_history);
     void navigate_history(std::ptrdiff_t delta);
     void update_navigation_state();
@@ -79,6 +82,8 @@ private:
     GtkWidget *sidebar_{nullptr};
     GtkWidget *status_label_{nullptr};
     GtkWidget *spinner_{nullptr};
+    std::unique_ptr<MountedPlacesMonitor> mounted_places_monitor_;
+    std::vector<GtkWidget *> mounted_place_rows_;
     GtkDirectoryList *directory_list_{nullptr};
     GtkMultiSelection *selection_{nullptr};
     GtkSingleSelection *primary_selection_{nullptr};
