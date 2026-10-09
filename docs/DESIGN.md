@@ -144,6 +144,26 @@ Metadata and semantic indexing should be local by default. The user's filesystem
 
 Any future remote model/service path must be explicit, optional and separable from ordinary file management. File operations must not require remote semantic services.
 
+## Browse presentation design brief
+
+Directory presentation is a task tool, not a cosmetic preference and not three independent file managers. Research and established file-management behaviour both indicate that different tasks benefit from different spatial density and information emphasis. Files therefore defines three primary browse presentations around cognitive task rather than competitor terminology:
+
+1. **Detail / analytical view** — one item per row with a restrained icon and comparable metadata. This is the strongest presentation when the user is comparing names, type, size, dates, state or other attributes.
+2. **Visual view** — a spatial grid with large icons or thumbnails and the filename beneath or immediately associated with the visual. This is strongest for recognition, media and visually distinctive content.
+3. **Compact / dense-scan view** — a small icon with the filename beside it, flowing into multiple columns where space permits. Its purpose is to maximise the number of names that can be scanned at once without reducing the interface to a tiny version of the Visual grid.
+
+Switching presentation must be cheap and immediate because presentation should follow the current task. The selected mode must not change the underlying location, selection, sorting, operation semantics, drag/drop rules, context actions, keyboard commands or filesystem behaviour. All presentations operate over the same application model and selection state.
+
+**View type and density are separate concepts.** Visual presentation may later support a continuous or stepped icon/thumbnail size control. Detail presentation may support row-density or column choices. Compact is a distinct information layout, not merely Visual with smaller icons. The architecture must not encode icon size as though it were the identity of the view.
+
+The primary selector should remain visually restrained and quickly reachable. Symbolic controls are preferred where they remain unambiguous, with tooltips and accessible names; permanent explanatory text is not required merely to expose the feature. The selector must have an obvious active state and work equally well by pointer and keyboard.
+
+The chosen presentation should persist across normal application restarts. Per-location remembered presentation is optional and should only be added if it proves useful without creating surprising state. A global remembered choice is the baseline contract.
+
+Qualification for browse presentation includes more than successful rendering: selection must survive switching, activation must mean the same thing in every view, keyboard navigation and focus must remain deliberate, sorting must remain consistent, large directories must remain virtualised/responsive, Day/Night presentation must be coherent, narrow windows must degrade gracefully, and drag/drop/context operations must not fork into view-specific policy.
+
+This brief supersedes implementation-convenience interpretations such as treating "small icons" as simply a scaled-down icon grid. Prototypes may explore exact spacing, thumbnail size, column flow and control placement, but they must preserve the three task roles and shared-model contract above.
+
 ## Platform and language philosophy
 
 The application model should not be defined by GTK widgets, Linux path strings or one desktop environment. The initial InfiltratorOS implementation can use the strongest practical Linux desktop interfaces while preserving toolkit-neutral concepts for location, object, capability, operation, history and search.
