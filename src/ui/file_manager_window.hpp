@@ -71,6 +71,9 @@ private:
     static void on_icon_factory_bind(GtkSignalListItemFactory *factory,
                                      GtkListItem *item,
                                      gpointer user_data);
+    static void on_compact_factory_setup(GtkSignalListItemFactory *factory,
+                                         GtkListItem *item,
+                                         gpointer user_data);
     static void on_loading_changed(GObject *object, GParamSpec *pspec, gpointer user_data);
     static void on_launch_finished(GObject *source, GAsyncResult *result, gpointer user_data);
     static void on_multi_selection_changed(GtkSelectionModel *model,

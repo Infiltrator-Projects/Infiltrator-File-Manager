@@ -114,7 +114,9 @@ void FileManagerWindow::build_ui(GtkApplication *application)
 
     location_entry_ = gtk_entry_new();
     gtk_widget_set_hexpand(location_entry_, TRUE);
-    gtk_widget_set_size_request(location_entry_, 430, -1);
+    // Keep the path useful at normal widths without forcing the whole window to
+    // remain wider than compact/split-screen layouts can provide.
+    gtk_widget_set_size_request(location_entry_, 180, -1);
     gtk_entry_set_placeholder_text(GTK_ENTRY(location_entry_), "Location");
     gtk_header_bar_set_title_widget(GTK_HEADER_BAR(header), location_entry_);
 
@@ -124,10 +126,10 @@ void FileManagerWindow::build_ui(GtkApplication *application)
 
     list_view_button_ = gtk_toggle_button_new_with_label("List");
     icon_view_button_ = gtk_toggle_button_new_with_label("Icons");
-    compact_view_button_ = gtk_toggle_button_new_with_label("Small");
-    gtk_widget_set_tooltip_text(list_view_button_, "List view");
-    gtk_widget_set_tooltip_text(icon_view_button_, "Icon view");
-    gtk_widget_set_tooltip_text(compact_view_button_, "Small icon view");
+    compact_view_button_ = gtk_toggle_button_new_with_label("Compact");
+    gtk_widget_set_tooltip_text(list_view_button_, "Detail / list view");
+    gtk_widget_set_tooltip_text(icon_view_button_, "Visual / icon view");
+    gtk_widget_set_tooltip_text(compact_view_button_, "Compact dense-scan view");
 
     gtk_toggle_button_set_group(GTK_TOGGLE_BUTTON(icon_view_button_),
                                 GTK_TOGGLE_BUTTON(list_view_button_));
@@ -230,9 +232,7 @@ void FileManagerWindow::build_ui(GtkApplication *application)
     g_signal_connect(icons, "activate", G_CALLBACK(on_grid_activate), this);
 
     GtkListItemFactory *compact_factory = gtk_signal_list_item_factory_new();
-    g_object_set_data(G_OBJECT(compact_factory), "ifm-icon-size", GINT_TO_POINTER(32));
-    g_object_set_data(G_OBJECT(compact_factory), "ifm-tile-width", GINT_TO_POINTER(92));
-    g_signal_connect(compact_factory, "setup", G_CALLBACK(on_icon_factory_setup), this);
+    g_signal_connect(compact_factory, "setup", G_CALLBACK(on_compact_factory_setup), this);
     g_signal_connect(compact_factory, "bind", G_CALLBACK(on_icon_factory_bind), this);
 
     GtkWidget *compact = gtk_grid_view_new(
@@ -307,7 +307,7 @@ void FileManagerWindow::apply_theme()
         << ".ifm-icon-tile { margin: 4px; padding: 8px 6px; border-radius: "
         << metrics->control_radius << "px; }\n"
         << ".ifm-icon-tile:hover { background: " << colour_hex(palette->surface_hover_rgb) << "; }\n"
-        << ".ifm-compact-tile { margin: 2px; padding: 6px 4px; }\n"
+        << ".ifm-compact-tile { margin: 2px; padding: 5px 8px; }\n"
         << ".ifm-file-name { color: " << colour_hex(palette->text_rgb) << "; }\n"
         << ".ifm-file-meta { color: " << colour_hex(palette->muted_rgb) << "; font-size: 0.88em; }\n"
         << ".ifm-status { background: " << colour_hex(palette->panel_rgb)
@@ -815,19 +815,16 @@ void FileManagerWindow::on_icon_factory_setup(GtkSignalListItemFactory *factory,
 {
     (void)user_data;
 
-    const int icon_size = std::max(24, GPOINTER_TO_INT(
+    const int icon_size = std::max(48, GPOINTER_TO_INT(
         g_object_get_data(G_OBJECT(factory), "ifm-icon-size")));
-    const int tile_width = std::max(72, GPOINTER_TO_INT(
+    const int tile_width = std::max(108, GPOINTER_TO_INT(
         g_object_get_data(G_OBJECT(factory), "ifm-tile-width")));
 
-    GtkWidget *tile = gtk_box_new(GTK_ORIENTATION_VERTICAL, icon_size >= 48 ? 7 : 4);
+    GtkWidget *tile = gtk_box_new(GTK_ORIENTATION_VERTICAL, 7);
     gtk_widget_set_size_request(tile, tile_width, -1);
     gtk_widget_set_halign(tile, GTK_ALIGN_CENTER);
     gtk_widget_set_valign(tile, GTK_ALIGN_START);
     gtk_widget_add_css_class(tile, "ifm-icon-tile");
-    if (icon_size < 48) {
-        gtk_widget_add_css_class(tile, "ifm-compact-tile");
-    }
 
     GtkWidget *icon = gtk_image_new();
     gtk_image_set_pixel_size(GTK_IMAGE(icon), icon_size);
@@ -839,9 +836,44 @@ void FileManagerWindow::on_icon_factory_setup(GtkSignalListItemFactory *factory,
     gtk_label_set_justify(GTK_LABEL(name), GTK_JUSTIFY_CENTER);
     gtk_label_set_wrap(GTK_LABEL(name), TRUE);
     gtk_label_set_wrap_mode(GTK_LABEL(name), PANGO_WRAP_WORD_CHAR);
-    gtk_label_set_lines(GTK_LABEL(name), icon_size >= 48 ? 2 : 1);
+    gtk_label_set_lines(GTK_LABEL(name), 2);
     gtk_label_set_ellipsize(GTK_LABEL(name), PANGO_ELLIPSIZE_END);
-    gtk_label_set_max_width_chars(GTK_LABEL(name), icon_size >= 48 ? 18 : 12);
+    gtk_label_set_max_width_chars(GTK_LABEL(name), 18);
+    gtk_widget_add_css_class(name, "ifm-file-name");
+    gtk_box_append(GTK_BOX(tile), name);
+
+    g_object_set_data(G_OBJECT(tile), "ifm-icon", icon);
+    g_object_set_data(G_OBJECT(tile), "ifm-name", name);
+    gtk_list_item_set_child(item, tile);
+}
+
+void FileManagerWindow::on_compact_factory_setup(GtkSignalListItemFactory *factory,
+                                                 GtkListItem *item,
+                                                 gpointer user_data)
+{
+    (void)factory;
+    (void)user_data;
+
+    // Compact is a distinct dense-scan composition, not a scaled-down Visual tile:
+    // the name sits beside a small icon so several readable columns can coexist.
+    GtkWidget *tile = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_size_request(tile, 196, -1);
+    gtk_widget_set_halign(tile, GTK_ALIGN_FILL);
+    gtk_widget_set_valign(tile, GTK_ALIGN_CENTER);
+    gtk_widget_add_css_class(tile, "ifm-icon-tile");
+    gtk_widget_add_css_class(tile, "ifm-compact-tile");
+
+    GtkWidget *icon = gtk_image_new();
+    gtk_image_set_pixel_size(GTK_IMAGE(icon), 24);
+    gtk_widget_set_halign(icon, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(tile), icon);
+
+    GtkWidget *name = gtk_label_new("");
+    gtk_label_set_xalign(GTK_LABEL(name), 0.0F);
+    gtk_label_set_single_line_mode(GTK_LABEL(name), TRUE);
+    gtk_label_set_ellipsize(GTK_LABEL(name), PANGO_ELLIPSIZE_END);
+    gtk_widget_set_hexpand(name, TRUE);
+    gtk_widget_set_halign(name, GTK_ALIGN_FILL);
     gtk_widget_add_css_class(name, "ifm-file-name");
     gtk_box_append(GTK_BOX(tile), name);
 
