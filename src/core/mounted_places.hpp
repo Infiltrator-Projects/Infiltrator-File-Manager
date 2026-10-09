@@ -12,6 +12,7 @@ namespace infiltrator::files {
 struct MountedPlace {
     std::string name;
     std::string uri;
+    std::string root_uri;
     bool removable{false};
 };
 
@@ -37,5 +38,9 @@ private:
     gulong mount_changed_handler_{0};
     ChangedCallback changed_;
 };
+
+[[nodiscard]] bool location_is_within_mounted_places(
+    const std::string &location_uri,
+    const std::vector<MountedPlace> &places);
 
 } // namespace infiltrator::files
