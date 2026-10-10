@@ -54,7 +54,7 @@ jobs:
     permissions:
       contents: write
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 45
     env:
       EXPECTED_SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
@@ -71,7 +71,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build pkg-config libgtk-4-dev dpkg-dev
+            build-essential cmake ninja-build pkg-config libgtk-4-dev dpkg-dev curl jq
 
       - name: Verify exact current main and release commit
         shell: bash
@@ -160,16 +160,15 @@ jobs:
           fi
 
           if gh release view "$tag" >/dev/null 2>&1; then
-            printf 'Release %s already exists; refusing to mutate published assets.\n' "$tag" >&2
-            exit 1
+            echo "Release ${tag} already exists on the exact immutable tag; verifying assets without mutating it."
+          else
+            gh release create "$tag" "$deb" "$sums" \
+              --verify-tag \
+              --target "$head_commit" \
+              --title "Infiltrator File Manager ${version}" \
+              --notes "Infiltrator File Manager ${version}. See the repository README for the current implementation surface and release status." \
+              --latest
           fi
-
-          gh release create "$tag" "$deb" "$sums" \
-            --verify-tag \
-            --target "$head_commit" \
-            --title "Infiltrator File Manager ${version}" \
-            --notes "Infiltrator File Manager ${version}. See the repository README for the current implementation surface and release status." \
-            --latest
 
           published_assets=$(gh release view "$tag" --json assets --jq '.assets[].name' | sort)
           expected_assets=$(printf 'SHA256SUMS\ninfiltrator-file-manager_%s_amd64.deb\n' "$version" | sort)
@@ -177,3 +176,46 @@ jobs:
             printf 'Unexpected published asset set for %s.\n' "$tag" >&2
             exit 1
           fi
+
+      - name: Verify central APT publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(tr -d '[:space:]' < VERSION)
+          base='https://infiltrator-projects.github.io/Infiltrator-Repository'
+          app_id='infiltrator-file-manager'
+          package='infiltrator-file-manager'
+
+          for attempt in $(seq 1 80); do
+            stamp="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${attempt}"
+            catalogue=$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' \
+              "${base}/catalogue/apps.json?release=${stamp}" || true)
+            packages=$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' \
+              "${base}/dists/beta/main/binary-amd64/Packages?release=${stamp}" || true)
+
+            catalogue_version=$(jq -r --arg id "$app_id" \
+              '.[] | select(.id == $id) | (.version // "")' <<<"$catalogue" 2>/dev/null | head -n1)
+            package_versions=$(awk -v wanted="$package" '
+              BEGIN { RS=""; FS="\n" }
+              {
+                pkg=""; ver=""
+                for (i=1; i<=NF; i++) {
+                  if ($i ~ /^Package: /) pkg=substr($i, 10)
+                  else if ($i ~ /^Version: /) ver=substr($i, 10)
+                }
+                if (pkg == wanted && ver != "") print ver
+              }
+            ' <<<"$packages")
+
+            if [[ "$catalogue_version" == "$version" ]] && grep -Fxq "$version" <<<"$package_versions"; then
+              printf 'Central APT publication verified for Files %s.\n' "$version"
+              exit 0
+            fi
+
+            printf 'Waiting for central APT publication of Files %s (catalogue=%s, attempt %s/80)...\n' \
+              "$version" "${catalogue_version:-<unavailable>}" "$attempt"
+            sleep 15
+          done
+
+          printf 'Central APT did not publish Files %s within the verification window.\n' "$version" >&2
+          exit 1
