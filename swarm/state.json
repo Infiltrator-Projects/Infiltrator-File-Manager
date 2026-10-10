@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "revision": 27,
+  "revision": 28,
   "mode": "WORK",
-  "updated_at": "2026-10-10T14:54:05.260Z",
+  "updated_at": "2026-10-10T22:16:00.000Z",
   "baseline": {
     "main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
     "version": "0.1.16",
@@ -14,12 +14,7 @@
     "phase": "FIXING",
     "package": {
       "title": "Protect destination ownership during transfers and replacement rollback",
-      "golden_journeys": [
-        "GJ-05",
-        "GJ-06",
-        "GJ-07",
-        "GJ-08"
-      ],
+      "golden_journeys": ["GJ-05", "GJ-06", "GJ-07", "GJ-08"],
       "scope": [
         "No-clobber Rename/Move/Copy/Keep Both when a competing writer wins the destination name.",
         "Created directory cleanup must only remove output owned by this operation.",
@@ -46,7 +41,7 @@
       "base_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
       "head_sha": "50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf",
       "draft": false,
-      "status": "FIXING: complete seven-finding correction committed at 50d0b3fd; local Release-equivalent dependency-free suites pass; exact-head hosted Verify pending.",
+      "status": "FIXING: Builder recovery after expired Fixer lease. Seven prior corrections are on 50d0b3fd; seven fresh exact-head Codex findings opened afterward. Fourteen review threads remain unresolved pending correction/evidence.",
       "changed_files": [
         "README.md",
         "src/core/destination_ownership.hpp",
@@ -70,7 +65,9 @@
         "Post-review exact-head Codex review PRR_kwDOU9Z1nc8AAAABRpWjMA opened seven unresolved threads on f5f2b5de58abb0d65d0a8814b79706536922e7a3; exact-head CI remains green but integration gates fail.",
         "Exact correction head 50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf builds directory copies privately before atomic publication and quarantines/verifies same-volume sources before publication.",
         "Cross-volume commit reintroduces stable quarantined source-versus-destination shape verification, cleans the first failed proof, and restores or truthfully reports remaining source quarantine after deletion failure.",
-        "Release-equivalent -O2 -DNDEBUG -Wall -Wextra -Werror destination-ownership, operation-engine, and transfer-operation-engine tests passed locally; CMake/pkg-config/GIO are unavailable locally, so hosted Verify remains the full gate."
+        "Release-equivalent -O2 -DNDEBUG -Wall -Wextra -Werror destination-ownership, operation-engine, and transfer-operation-engine tests passed locally; CMake/pkg-config/GIO are unavailable locally, so hosted Verify remains the full gate.",
+        "Exact-head hosted Verify 38061436524 succeeded for 50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf.",
+        "A later Codex pass opened seven additional exact-head findings at 2026-10-10T15:00:43Z; Builder recovery is required because the Fixer lease expired without a follow-up state handoff."
       ]
     },
     "review": {
@@ -84,306 +81,52 @@
       "request_changes_rejection": "Review Can not request changes on your own pull request"
     },
     "hard_findings": [
-      {
-        "id": "operation-move-identity",
-        "severity": "P1",
-        "paths": [
-          "src/core/operation_engine.cpp"
-        ],
-        "finding": "Same-volume move accepts pathname presence rather than the captured source identity; cross-volume move deletes the source then compares the new copy's device/inode to the old source identity, so genuine cross-volume success returns VerificationFailure.",
-        "required": "Verify same-volume destination against moved_identity. For cross-volume moves, preserve and verify the copied destination identity before source removal. Add true cross-volume and same-volume replacement-race Release tests.",
-        "threads": [
-          "PRRT_kwDOU9Z1nc6rETrS",
-          "PRRT_kwDOU9Z1nc6rEXUg"
-        ],
-        "status": "resolved",
-        "addressed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
-        "resolved_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
-        "resolution": "One TransferOperationEngine move path verifies same-volume moved identity; cross-volume uses copied identities and source quarantine. Real /tmp→/dev/shm Release test passed."
-      },
-      {
-        "id": "directory-copy-complete-identity",
-        "severity": "P1",
-        "paths": [
-          "src/core/transfer_operation_engine.cpp"
-        ],
-        "finding": "copy_exact records every output but verifies only owned.front(); a replaced child can be accepted while cross-volume move deletes the source.",
-        "required": "Verify the complete owned output set, or provide equivalent full-copy proof, before success/source removal. Add a deterministic child-replacement Release test.",
-        "threads": [
-          "PRRT_kwDOU9Z1nc6rEXUj"
-        ],
-        "status": "resolved",
-        "addressed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
-        "resolved_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
-        "resolution": "verify_all checks every recorded file/link/directory before success and again before source deletion; deterministic replaced-child proof test passed."
-      },
-      {
-        "id": "late-cross-volume-cancellation",
-        "severity": "P2",
-        "paths": [
-          "src/core/transfer_operation_engine.cpp"
-        ],
-        "finding": "Cancellation after copy_exact succeeds leaves both source and completed destination but returns Cancelled.",
-        "required": "Safely clean the owned destination or make successful copy_exact completion the documented commit point and return truthful completion. Add a post-copy cancellation test.",
-        "threads": [
-          "PRRT_kwDOU9Z1nc6rETrV"
-        ],
-        "status": "resolved",
-        "addressed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
-        "resolved_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
-        "resolution": "Verified copy completion is the documented commit point; the post-copy Cancelled branch was removed, while in-copy cancellation and owned cleanup remain."
-      },
-      {
-        "id": "per-file-fsync-performance",
-        "severity": "P2",
-        "paths": [
-          "src/core/transfer_operation_engine.cpp"
-        ],
-        "finding": "Every copied regular file forces fsync, serializing large directory copies without complete directory durability.",
-        "required": "Restore normal close semantics or implement a measured coherent durability policy; qualify large-tree behavior.",
-        "threads": [
-          "PRRT_kwDOU9Z1nc6rETrZ"
-        ],
-        "status": "resolved",
-        "addressed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
-        "resolved_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
-        "resolution": "Unconditional per-file fsync removed; checked normal close semantics restored without claiming incomplete durability."
-      },
-      {
-        "id": "staged-backup-ownership",
-        "severity": "P1",
-        "paths": [
-          "src/core/recovery_operation_engine.cpp"
-        ],
-        "finding": "Replacement and restore staging do not record the backup identity; rollback can restore and cleanup can remove_all a competitor replacement at the hidden backup pathname.",
-        "required": "Record the staged object's identity and use identity-safe quarantine/verification before rollback or deletion. Add rollback and successful-cleanup replacement-race Release tests.",
-        "threads": [
-          "PRRT_kwDOU9Z1nc6rEXUn"
-        ],
-        "status": "resolved",
-        "addressed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
-        "resolved_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
-        "resolution": "Staged identity is recorded; rollback and cleanup atomically quarantine and verify before restoring/removing. Deterministic backup replacement tests passed."
-      },
-      {
-        "id": "directory-publish-ownership-race",
-        "severity": "P1",
-        "paths": [
-          "src/core/transfer_operation_engine.cpp"
-        ],
-        "finding": "After exclusive directory creation, a competing writer can swap the published directory before record(), causing the competitor inode to be recorded as owned and later mutated or removed.",
-        "required": "Create and identify the directory privately, then publish atomically, or use an equivalent creation/identity mechanism that cannot derive ownership from a swappable public pathname. Add a deterministic Release race fixture.",
-        "threads": [
-          "PRRT_kwDOU9Z1nc6rEfoJ"
-        ],
-        "status": "addressed",
-        "observed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
-        "addressed_sha": "50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf"
-      },
-      {
-        "id": "stage-destination-mismatch-restore",
-        "severity": "P1",
-        "paths": [
-          "src/core/recovery_operation_engine.cpp"
-        ],
-        "finding": "If destination is replaced between identity capture and staging rename, stage_destination moves the competitor to the hidden backup, detects mismatch, then returns without restoring it; the visible destination is left missing.",
-        "required": "On identity mismatch, restore the renamed object to the original pathname with no-replace semantics and report/retain the exact quarantine path if restoration is unsafe. Add a deterministic staging-window fixture.",
-        "threads": [
-          "PRRT_kwDOU9Z1nc6rEfoM"
-        ],
-        "status": "addressed",
-        "observed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
-        "addressed_sha": "50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf"
-      },
-      {
-        "id": "same-volume-source-swap-rollback",
-        "severity": "P1",
-        "paths": [
-          "src/core/transfer_operation_engine.cpp"
-        ],
-        "finding": "If source identity changes between capture and same-volume rename, the replacement object is moved to destination; verification fails but the unrelated object is not restored.",
-        "required": "Quarantine and verify the source before publishing it at destination, or restore the moved object safely on mismatch. Add a deterministic source-swap Release test.",
-        "threads": [
-          "PRRT_kwDOU9Z1nc6rEfoN"
-        ],
-        "status": "addressed",
-        "observed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
-        "addressed_sha": "50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf"
-      },
-      {
-        "id": "first-commit-verification-cleanup",
-        "severity": "P2",
-        "paths": [
-          "src/core/transfer_operation_engine.cpp"
-        ],
-        "finding": "When the first post-copy verify_all fails, the source remains but unchanged owned destination outputs are left behind instead of being ownership-safely cleaned.",
-        "required": "Run cleanup_owned for unchanged owned outputs while retaining the competing replacement and report any retained partial state honestly.",
-        "threads": [
-          "PRRT_kwDOU9Z1nc6rEfoQ"
-        ],
-        "status": "addressed",
-        "observed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
-        "addressed_sha": "50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf"
-      },
-      {
-        "id": "cross-volume-copy-shape-regression",
-        "severity": "P1",
-        "paths": [
-          "src/core/operation_engine.cpp",
-          "src/core/transfer_operation_engine.cpp"
-        ],
-        "finding": "Delegation removed source-versus-destination shape verification; source growth or new entries during copy can be omitted while recorded destination identities still verify, after which the newer source is deleted.",
-        "required": "After quarantining the source into a stable pathname, compare supported source content/shape with the destination before source deletion. Add mutation-during-copy Release coverage.",
-        "threads": [
-          "PRRT_kwDOU9Z1nc6rEfoS"
-        ],
-        "status": "addressed",
-        "observed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
-        "addressed_sha": "50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf"
-      },
-      {
-        "id": "source-quarantine-delete-failure-restore",
-        "severity": "P1",
-        "paths": [
-          "src/core/transfer_operation_engine.cpp"
-        ],
-        "finding": "If remove_all(source_quarantine) fails, remaining source content stays hidden under an internal cleanup name while the error implies the original path remains available.",
-        "required": "Attempt no-replace restoration of any remaining quarantine to source before returning; if unsafe, report the exact retained path. Add partial deletion failure evidence.",
-        "threads": [
-          "PRRT_kwDOU9Z1nc6rEfoV"
-        ],
-        "status": "addressed",
-        "observed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
-        "addressed_sha": "50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf"
-      },
-      {
-        "id": "cross-volume-test-portability",
-        "severity": "P2",
-        "paths": [
-          "tests/operation_engine_test.cpp"
-        ],
-        "finding": "The documented test suite fails when /dev/shm is unavailable, unwritable or on the same device as the temporary directory.",
-        "required": "Treat absence of two writable distinct filesystems as a skipped qualification or explicitly provision the second mount; retain real cross-volume evidence in CI.",
-        "threads": [
-          "PRRT_kwDOU9Z1nc6rEfoX"
-        ],
-        "status": "addressed",
-        "observed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
-        "addressed_sha": "50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf"
-      }
+      {"id":"operation-move-identity","severity":"P1","paths":["src/core/operation_engine.cpp"],"finding":"Same-volume move accepts pathname presence rather than the captured source identity; cross-volume move deletes the source then compares the new copy's device/inode to the old source identity, so genuine cross-volume success returns VerificationFailure.","required":"Verify same-volume destination against moved_identity. For cross-volume moves, preserve and verify the copied destination identity before source removal. Add true cross-volume and same-volume replacement-race Release tests.","threads":["PRRT_kwDOU9Z1nc6rETrS","PRRT_kwDOU9Z1nc6rEXUg"],"status":"resolved","addressed_sha":"f5f2b5de58abb0d65d0a8814b79706536922e7a3","resolved_sha":"f5f2b5de58abb0d65d0a8814b79706536922e7a3","resolution":"One TransferOperationEngine move path verifies same-volume moved identity; cross-volume uses copied identities and source quarantine. Real /tmp→/dev/shm Release test passed."},
+      {"id":"directory-copy-complete-identity","severity":"P1","paths":["src/core/transfer_operation_engine.cpp"],"finding":"copy_exact records every output but verifies only owned.front(); a replaced child can be accepted while cross-volume move deletes the source.","required":"Verify the complete owned output set, or provide equivalent full-copy proof, before success/source removal. Add a deterministic child-replacement Release test.","threads":["PRRT_kwDOU9Z1nc6rEXUj"],"status":"resolved","addressed_sha":"f5f2b5de58abb0d65d0a8814b79706536922e7a3","resolved_sha":"f5f2b5de58abb0d65d0a8814b79706536922e7a3","resolution":"verify_all checks every recorded file/link/directory before success and again before source deletion; deterministic replaced-child proof test passed."},
+      {"id":"late-cross-volume-cancellation","severity":"P2","paths":["src/core/transfer_operation_engine.cpp"],"finding":"Cancellation after copy_exact succeeds leaves both source and completed destination but returns Cancelled.","required":"Safely clean the owned destination or make successful copy_exact completion the documented commit point and return truthful completion. Add a post-copy cancellation test.","threads":["PRRT_kwDOU9Z1nc6rETrV"],"status":"resolved","addressed_sha":"f5f2b5de58abb0d65d0a8814b79706536922e7a3","resolved_sha":"f5f2b5de58abb0d65d0a8814b79706536922e7a3","resolution":"Verified copy completion is the documented commit point; the post-copy Cancelled branch was removed, while in-copy cancellation and owned cleanup remain."},
+      {"id":"per-file-fsync-performance","severity":"P2","paths":["src/core/transfer_operation_engine.cpp"],"finding":"Every copied regular file forces fsync, serializing large directory copies without complete directory durability.","required":"Restore normal close semantics or implement a measured coherent durability policy; qualify large-tree behavior.","threads":["PRRT_kwDOU9Z1nc6rETrZ"],"status":"resolved","addressed_sha":"f5f2b5de58abb0d65d0a8814b79706536922e7a3","resolved_sha":"f5f2b5de58abb0d65d0a8814b79706536922e7a3","resolution":"Unconditional per-file fsync removed; checked normal close semantics restored without claiming incomplete durability."},
+      {"id":"staged-backup-ownership","severity":"P1","paths":["src/core/recovery_operation_engine.cpp"],"finding":"Replacement and restore staging do not record the backup identity; rollback can restore and cleanup can remove_all a competitor replacement at the hidden backup pathname.","required":"Record the staged object's identity and use identity-safe quarantine/verification before rollback or deletion. Add rollback and successful-cleanup replacement-race Release tests.","threads":["PRRT_kwDOU9Z1nc6rEXUn"],"status":"resolved","addressed_sha":"f5f2b5de58abb0d65d0a8814b79706536922e7a3","resolved_sha":"f5f2b5de58abb0d65d0a8814b79706536922e7a3","resolution":"Staged identity is recorded; rollback and cleanup atomically quarantine and verify before restoring/removing. Deterministic backup replacement tests passed."},
+      {"id":"directory-publish-ownership-race","severity":"P1","paths":["src/core/transfer_operation_engine.cpp"],"finding":"After exclusive directory creation, a competing writer can swap the published directory before record(), causing the competitor inode to be recorded as owned and later mutated or removed.","required":"Create and identify the directory privately, then publish atomically, or use an equivalent creation/identity mechanism that cannot derive ownership from a swappable public pathname. Add a deterministic Release race fixture.","threads":["PRRT_kwDOU9Z1nc6rEfoJ"],"status":"addressed","observed_sha":"f5f2b5de58abb0d65d0a8814b79706536922e7a3","addressed_sha":"50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf"},
+      {"id":"stage-destination-mismatch-restore","severity":"P1","paths":["src/core/recovery_operation_engine.cpp"],"finding":"If destination is replaced between identity capture and staging rename, stage_destination moves the competitor to the hidden backup, detects mismatch, then returns without restoring it; the visible destination is left missing.","required":"On identity mismatch, restore the renamed object to the original pathname with no-replace semantics and report/retain the exact quarantine path if restoration is unsafe. Add a deterministic staging-window fixture.","threads":["PRRT_kwDOU9Z1nc6rEfoM"],"status":"addressed","observed_sha":"f5f2b5de58abb0d65d0a8814b79706536922e7a3","addressed_sha":"50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf"},
+      {"id":"same-volume-source-swap-rollback","severity":"P1","paths":["src/core/transfer_operation_engine.cpp"],"finding":"If source identity changes between capture and same-volume rename, the replacement object is moved to destination; verification fails but the unrelated object is not restored.","required":"Quarantine and verify the source before publishing it at destination, or restore the moved object safely on mismatch. Add a deterministic source-swap Release test.","threads":["PRRT_kwDOU9Z1nc6rEfoN"],"status":"addressed","observed_sha":"f5f2b5de58abb0d65d0a8814b79706536922e7a3","addressed_sha":"50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf"},
+      {"id":"first-commit-verification-cleanup","severity":"P2","paths":["src/core/transfer_operation_engine.cpp"],"finding":"When the first post-copy verify_all fails, the source remains but unchanged owned destination outputs are left behind instead of being ownership-safely cleaned.","required":"Run cleanup_owned for unchanged owned outputs while retaining the competing replacement and report any retained partial state honestly.","threads":["PRRT_kwDOU9Z1nc6rEfoQ"],"status":"addressed","observed_sha":"f5f2b5de58abb0d65d0a8814b79706536922e7a3","addressed_sha":"50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf"},
+      {"id":"cross-volume-copy-shape-regression","severity":"P1","paths":["src/core/operation_engine.cpp","src/core/transfer_operation_engine.cpp"],"finding":"Delegation removed source-versus-destination shape verification; source growth or new entries during copy can be omitted while recorded destination identities still verify, after which the newer source is deleted.","required":"After quarantining the source into a stable pathname, compare supported source content/shape with the destination before source deletion. Add mutation-during-copy Release coverage.","threads":["PRRT_kwDOU9Z1nc6rEfoS"],"status":"addressed","observed_sha":"f5f2b5de58abb0d65d0a8814b79706536922e7a3","addressed_sha":"50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf"},
+      {"id":"source-quarantine-delete-failure-restore","severity":"P1","paths":["src/core/transfer_operation_engine.cpp"],"finding":"If remove_all(source_quarantine) fails, remaining source content stays hidden under an internal cleanup name while the error implies the original path remains available.","required":"Attempt no-replace restoration of any remaining quarantine to source before returning; if unsafe, report the exact retained path. Add partial deletion failure evidence.","threads":["PRRT_kwDOU9Z1nc6rEfoV"],"status":"addressed","observed_sha":"f5f2b5de58abb0d65d0a8814b79706536922e7a3","addressed_sha":"50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf"},
+      {"id":"cross-volume-test-portability","severity":"P2","paths":["tests/operation_engine_test.cpp"],"finding":"The documented test suite fails when /dev/shm is unavailable, unwritable or on the same device as the temporary directory.","required":"Treat absence of two writable distinct filesystems as a skipped qualification or explicitly provision the second mount; retain real cross-volume evidence in CI.","threads":["PRRT_kwDOU9Z1nc6rEfoX"],"status":"addressed","observed_sha":"f5f2b5de58abb0d65d0a8814b79706536922e7a3","addressed_sha":"50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf"},
+      {"id":"rename-item-source-swap","severity":"P1","paths":["src/core/operation_engine.cpp"],"finding":"When another writer replaces source after moved_identity is captured but before rename_item publishes it, the replacement can be moved to destination and left displaced when verification fails.","required":"Quarantine and verify the source before publication or safely restore a moved mismatch. Add deterministic source-swap Release coverage for rename_item.","threads":["PRRT_kwDOU9Z1nc6rE_rs"],"status":"unresolved","observed_sha":"50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf"},
+      {"id":"symlink-publish-ownership-race","severity":"P1","paths":["src/core/transfer_operation_engine.cpp"],"finding":"A competing writer can swap a newly created destination symlink between create_symlink and record(), causing competitor identity to be recorded as owned.","required":"Create and identify the symlink privately, then publish atomically with no-replace semantics. Add a deterministic Release race fixture.","threads":["PRRT_kwDOU9Z1nc6rE_ru"],"status":"unresolved","observed_sha":"50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf"},
+      {"id":"staged-cleanup-failure-restore","severity":"P2","paths":["src/core/destination_ownership.hpp"],"finding":"If remove_all partially fails after staged previous destination is quarantined, remaining data can be hidden under an internal cleanup name while callers report staged.path.","required":"Attempt no-replace restoration of remaining quarantine to staged.path; if unsafe, surface the retained quarantine path truthfully. Add failure-path evidence.","threads":["PRRT_kwDOU9Z1nc6rE_r0"],"status":"unresolved","observed_sha":"50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf"},
+      {"id":"ordinary-copy-shape-regression","severity":"P2","paths":["src/core/operation_engine.cpp","src/core/transfer_operation_engine.cpp"],"finding":"Ordinary copy can report success for an incomplete snapshot if the source grows or gains entries after traversal because source-versus-destination shape verification was removed.","required":"Compare stable source/destination shape before ordinary copy success, without deleting/mutating source. Add mutation-during-copy Release coverage.","threads":["PRRT_kwDOU9Z1nc6rE_r4"],"status":"unresolved","observed_sha":"50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf"},
+      {"id":"same-volume-move-postpublish-verification","severity":"P1","paths":["src/core/transfer_operation_engine.cpp"],"finding":"Same-volume move returns success after move_owned_no_replace without verifying moved_output still owns the visible destination.","required":"Verify moved_output identity before accepting same-volume move success and preserve/recover displaced owned data safely on mismatch. Add deterministic post-publication replacement coverage.","threads":["PRRT_kwDOU9Z1nc6rE_r8"],"status":"unresolved","observed_sha":"50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf"},
+      {"id":"rename-no-replace-unsupported","severity":"P1","paths":["src/core/destination_ownership.hpp"],"finding":"rename_no_replace treats EINVAL/EOPNOTSUPP from unsupported RENAME_NOREPLACE as fatal, breaking otherwise usable filesystems.","required":"Capability-detect and provide a safe no-clobber fallback/provider path without weakening destination ownership guarantees; add Release-effective fallback coverage.","threads":["PRRT_kwDOU9Z1nc6rE_r_"],"status":"unresolved","observed_sha":"50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf"},
+      {"id":"exdev-probe-rollback-hidden-source","severity":"P1","paths":["src/core/destination_ownership.hpp","src/core/transfer_operation_engine.cpp"],"finding":"During cross-volume move probing, EXDEV publication rollback can fail with EEXIST after a concurrent source-path claim, leaving the original source hidden under a cleanup quarantine with no surfaced path.","required":"Preserve and report the retained quarantine path or safely restore without replacement; add deterministic EXDEV rollback-race coverage.","threads":["PRRT_kwDOU9Z1nc6rE_sD"],"status":"unresolved","observed_sha":"50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf"}
     ],
     "integration": null,
     "release": null,
     "blocker": null
   },
   "lease": {
-    "role": "Fixer",
-    "token": "fixer-destination-ownership-20261010T144533169Z",
-    "expires_at": "2026-10-10T15:30:33.169Z"
+    "role": "Builder",
+    "token": "builder-recovery-destination-ownership-20261010T221600Z",
+    "expires_at": "2026-10-10T23:01:00.000Z"
   },
   "heartbeats": {
-    "Architect": {
-      "at": "2026-10-10T14:02:19.099Z",
-      "status": "Active destination-ownership stroke preserved; FIX_REQUIRED with seven unresolved exact-head hard review threads; no competing package nominated",
-      "observed_revision": 22,
-      "observed_head": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
-      "next_action": "Fixer must retain PR #10, correct the complete seven-finding hard set, resolve every exact-head thread with evidence, and rerun exact-head Release CI before renewed review/integration."
-    },
-    "Builder": {
-      "at": "2026-10-10T14:11:02.888Z",
-      "status": "Observed FIX_REQUIRED on unchanged PR #10 head with seven newly opened hard findings; Builder recovery not authorized because the Fixer phase is fresh and not abandoned",
-      "observed_revision": 23,
-      "observed_head": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
-      "next_action": "Fixer must retain PR #10, correct the complete seven-finding Integrator/Codex hard set, resolve every exact-head thread with evidence, and rerun exact-head Release CI."
-    },
-    "Reviewer": {
-      "at": "2026-10-10T14:26:00.603Z",
-      "status": "Observed FIX_REQUIRED on unchanged PR #10 head with seven unresolved exact-head threads; no duplicate formal review submitted outside REVIEW_READY/REVIEWING",
-      "observed_revision": 24,
-      "observed_head": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
-      "next_action": "Fixer must correct the complete seven-finding hard set on PR #10, resolve all exact-head threads with evidence, and provide fresh exact-head Release CI before Reviewer re-entry."
-    },
-    "Integrator": {
-      "at": "2026-10-10T13:56:39.301Z",
-      "status": "Integration blocked by seven new exact-head post-review findings; no merge",
-      "observed_revision": 21,
-      "observed_head": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
-      "next_action": "Fixer must correct the complete seven-finding post-review set on PR #10, resolve all exact-head threads, rerun Release-effective tests/CI, and return the refreshed head to independent review/integration verification."
-    },
-    "Fixer": {
-      "at": "2026-10-10T14:54:05.260Z",
-      "status": "All seven new hard findings addressed on PR #10 head 50d0b3fd; local Release-effective dependency-free suites pass; hosted exact-head Verify pending",
-      "observed_revision": 26,
-      "observed_head": "50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf",
-      "next_action": "Await exact-head Verify, inspect any fresh review findings, then reply/resolve all seven threads and mark INTEGRATE_READY only if every gate passes."
-    }
+    "Architect": {"at":"2026-10-10T14:02:19.099Z","status":"Active destination-ownership stroke preserved; FIX_REQUIRED with seven unresolved exact-head hard review threads; no competing package nominated","observed_revision":22,"observed_head":"f5f2b5de58abb0d65d0a8814b79706536922e7a3","next_action":"Fixer must retain PR #10, correct the complete seven-finding hard set, resolve every exact-head thread with evidence, and rerun exact-head Release CI before renewed review/integration."},
+    "Builder": {"at":"2026-10-10T22:16:00.000Z","status":"Recovered abandoned FIXING phase after Fixer lease expiry; PR #10 remains at 50d0b3fd with hosted Verify green but seven newer exact-head Codex findings and fourteen unresolved review threads.","observed_revision":27,"observed_head":"50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf","next_action":"Correct the seven fresh exact-head hard findings on the same PR, verify all prior addressed findings, reply/resolve the complete unresolved thread set, and rerun exact-head Release CI."},
+    "Reviewer": {"at":"2026-10-10T14:26:00.603Z","status":"Observed FIX_REQUIRED on unchanged PR #10 head with seven unresolved exact-head threads; no duplicate formal review submitted outside REVIEW_READY/REVIEWING","observed_revision":24,"observed_head":"f5f2b5de58abb0d65d0a8814b79706536922e7a3","next_action":"Fixer must correct the complete seven-finding hard set on PR #10, resolve all exact-head threads with evidence, and provide fresh exact-head Release CI before Reviewer re-entry."},
+    "Integrator": {"at":"2026-10-10T13:56:39.301Z","status":"Integration blocked by seven new exact-head post-review findings; no merge","observed_revision":21,"observed_head":"f5f2b5de58abb0d65d0a8814b79706536922e7a3","next_action":"Fixer must correct the complete seven-finding post-review set on PR #10, resolve all exact-head threads, rerun Release-effective tests/CI, and return the refreshed head to independent review/integration verification."},
+    "Fixer": {"at":"2026-10-10T14:54:05.260Z","status":"All seven new hard findings addressed on PR #10 head 50d0b3fd; local Release-effective dependency-free suites pass; hosted exact-head Verify pending","observed_revision":26,"observed_head":"50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf","next_action":"Await exact-head Verify, inspect any fresh review findings, then reply/resolve all seven threads and mark INTEGRATE_READY only if every gate passes."}
   },
-  "last_transition": {
-    "role": "Fixer",
-    "from": "FIX_REQUIRED",
-    "to": "FIXING",
-    "reason": "Claimed the complete seven-finding exact-head Integrator/Codex hard set for correction on the existing PR #10."
-  },
+  "last_transition": {"role":"Fixer","from":"FIX_REQUIRED","to":"FIXING","reason":"Claimed the complete seven-finding exact-head Integrator/Codex hard set for correction on the existing PR #10."},
   "health": {
     "nonce": "files-swarm-20261010-1136",
-    "check_order": [
-      "Architect",
-      "Builder",
-      "Reviewer",
-      "Fixer",
-      "Integrator"
-    ],
+    "check_order": ["Architect","Builder","Reviewer","Fixer","Integrator"],
     "receipts": [
-      {
-        "role": "Architect",
-        "nonce": "files-swarm-20261010-1136",
-        "at": "2026-10-10T11:44:45.317Z",
-        "previous_role": null,
-        "previous_comment_id": null,
-        "comment_id": 6097146411,
-        "observed_revision": 0,
-        "observed_main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f"
-      },
-      {
-        "role": "Builder",
-        "nonce": "files-swarm-20261010-1136",
-        "at": "2026-10-10T11:46:29.036Z",
-        "previous_role": "Architect",
-        "previous_comment_id": 6097146411,
-        "comment_id": 6097160209,
-        "observed_revision": 1,
-        "observed_main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f"
-      },
-      {
-        "role": "Reviewer",
-        "nonce": "files-swarm-20261010-1136",
-        "at": "2026-10-10T11:54:35.620Z",
-        "previous_role": "Builder",
-        "previous_comment_id": 6097160209,
-        "comment_id": 6097221437,
-        "observed_revision": 2,
-        "observed_main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f"
-      },
-      {
-        "role": "Fixer",
-        "nonce": "files-swarm-20261010-1136",
-        "at": "2026-10-10T12:07:05.496Z",
-        "previous_role": "Reviewer",
-        "previous_comment_id": 6097221437,
-        "comment_id": 6097314262,
-        "observed_revision": 4,
-        "observed_main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f"
-      },
-      {
-        "role": "Integrator",
-        "nonce": "files-swarm-20261010-1136",
-        "at": "2026-10-10T12:09:38.728Z",
-        "previous_role": "Fixer",
-        "previous_comment_id": 6097314262,
-        "comment_id": 6097333902,
-        "observed_revision": 5,
-        "observed_main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f"
-      }
+      {"role":"Architect","nonce":"files-swarm-20261010-1136","at":"2026-10-10T11:44:45.317Z","previous_role":null,"previous_comment_id":null,"comment_id":6097146411,"observed_revision":0,"observed_main_sha":"8c2daf6cdf3e214186b9fdb880799ad8ae5c554f"},
+      {"role":"Builder","nonce":"files-swarm-20261010-1136","at":"2026-10-10T11:46:29.036Z","previous_role":"Architect","previous_comment_id":6097146411,"comment_id":6097160209,"observed_revision":1,"observed_main_sha":"8c2daf6cdf3e214186b9fdb880799ad8ae5c554f"},
+      {"role":"Reviewer","nonce":"files-swarm-20261010-1136","at":"2026-10-10T11:54:35.620Z","previous_role":"Builder","previous_comment_id":6097160209,"comment_id":6097221437,"observed_revision":2,"observed_main_sha":"8c2daf6cdf3e214186b9fdb880799ad8ae5c554f"},
+      {"role":"Fixer","nonce":"files-swarm-20261010-1136","at":"2026-10-10T12:07:05.496Z","previous_role":"Reviewer","previous_comment_id":6097221437,"comment_id":6097314262,"observed_revision":4,"observed_main_sha":"8c2daf6cdf3e214186b9fdb880799ad8ae5c554f"},
+      {"role":"Integrator","nonce":"files-swarm-20261010-1136","at":"2026-10-10T12:09:38.728Z","previous_role":"Fixer","previous_comment_id":6097314262,"comment_id":6097333902,"observed_revision":5,"observed_main_sha":"8c2daf6cdf3e214186b9fdb880799ad8ae5c554f"}
     ],
     "verified_at": "2026-10-10T12:10:12.396Z",
     "verified_by": "HAL",
