@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "revision": 26,
+  "revision": 27,
   "mode": "WORK",
-  "updated_at": "2026-10-10T14:45:33.169Z",
+  "updated_at": "2026-10-10T14:54:05.260Z",
   "baseline": {
     "main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
     "version": "0.1.16",
@@ -44,9 +44,9 @@
       "url": "https://github.com/Infiltrator-Projects/Infiltrator-File-Manager/pull/10",
       "branch": "swarm/destination-ownership",
       "base_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
-      "head_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
+      "head_sha": "50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf",
       "draft": false,
-      "status": "FIXING: Fixer claimed the complete seven-finding exact-head hard set on PR #10; implementation and qualification in progress.",
+      "status": "FIXING: complete seven-finding correction committed at 50d0b3fd; local Release-equivalent dependency-free suites pass; exact-head hosted Verify pending.",
       "changed_files": [
         "README.md",
         "src/core/destination_ownership.hpp",
@@ -67,7 +67,10 @@
         "Local direct g++ Release-equivalent warning builds and destination/operation/transfer tests passed; full CMake unavailable locally.",
         "Exact-head Verify run 38057074480 succeeded for f5f2b5de58abb0d65d0a8814b79706536922e7a3; build passed and 10/10 tests passed.",
         "All six formal-review threads have exact-head replies and are resolved; total unresolved thread count is zero.",
-        "Post-review exact-head Codex review PRR_kwDOU9Z1nc8AAAABRpWjMA opened seven unresolved threads on f5f2b5de58abb0d65d0a8814b79706536922e7a3; exact-head CI remains green but integration gates fail."
+        "Post-review exact-head Codex review PRR_kwDOU9Z1nc8AAAABRpWjMA opened seven unresolved threads on f5f2b5de58abb0d65d0a8814b79706536922e7a3; exact-head CI remains green but integration gates fail.",
+        "Exact correction head 50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf builds directory copies privately before atomic publication and quarantines/verifies same-volume sources before publication.",
+        "Cross-volume commit reintroduces stable quarantined source-versus-destination shape verification, cleans the first failed proof, and restores or truthfully reports remaining source quarantine after deletion failure.",
+        "Release-equivalent -O2 -DNDEBUG -Wall -Wextra -Werror destination-ownership, operation-engine, and transfer-operation-engine tests passed locally; CMake/pkg-config/GIO are unavailable locally, so hosted Verify remains the full gate."
       ]
     },
     "review": {
@@ -173,8 +176,9 @@
         "threads": [
           "PRRT_kwDOU9Z1nc6rEfoJ"
         ],
-        "status": "open",
-        "observed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3"
+        "status": "addressed",
+        "observed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
+        "addressed_sha": "50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf"
       },
       {
         "id": "stage-destination-mismatch-restore",
@@ -187,8 +191,9 @@
         "threads": [
           "PRRT_kwDOU9Z1nc6rEfoM"
         ],
-        "status": "open",
-        "observed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3"
+        "status": "addressed",
+        "observed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
+        "addressed_sha": "50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf"
       },
       {
         "id": "same-volume-source-swap-rollback",
@@ -201,8 +206,9 @@
         "threads": [
           "PRRT_kwDOU9Z1nc6rEfoN"
         ],
-        "status": "open",
-        "observed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3"
+        "status": "addressed",
+        "observed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
+        "addressed_sha": "50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf"
       },
       {
         "id": "first-commit-verification-cleanup",
@@ -215,8 +221,9 @@
         "threads": [
           "PRRT_kwDOU9Z1nc6rEfoQ"
         ],
-        "status": "open",
-        "observed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3"
+        "status": "addressed",
+        "observed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
+        "addressed_sha": "50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf"
       },
       {
         "id": "cross-volume-copy-shape-regression",
@@ -230,8 +237,9 @@
         "threads": [
           "PRRT_kwDOU9Z1nc6rEfoS"
         ],
-        "status": "open",
-        "observed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3"
+        "status": "addressed",
+        "observed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
+        "addressed_sha": "50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf"
       },
       {
         "id": "source-quarantine-delete-failure-restore",
@@ -244,8 +252,9 @@
         "threads": [
           "PRRT_kwDOU9Z1nc6rEfoV"
         ],
-        "status": "open",
-        "observed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3"
+        "status": "addressed",
+        "observed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
+        "addressed_sha": "50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf"
       },
       {
         "id": "cross-volume-test-portability",
@@ -258,8 +267,9 @@
         "threads": [
           "PRRT_kwDOU9Z1nc6rEfoX"
         ],
-        "status": "open",
-        "observed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3"
+        "status": "addressed",
+        "observed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
+        "addressed_sha": "50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf"
       }
     ],
     "integration": null,
@@ -301,11 +311,11 @@
       "next_action": "Fixer must correct the complete seven-finding post-review set on PR #10, resolve all exact-head threads, rerun Release-effective tests/CI, and return the refreshed head to independent review/integration verification."
     },
     "Fixer": {
-      "at": "2026-10-10T14:45:33.169Z",
-      "status": "Claimed PR #10 at f5f2b5de to close the complete seven-finding exact-head hard set; implementation starting",
-      "observed_revision": 25,
-      "observed_head": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
-      "next_action": "Implement all seven fixes on the same PR, add deterministic Release-effective coverage, rerun exact-head CI, and resolve every finding with evidence."
+      "at": "2026-10-10T14:54:05.260Z",
+      "status": "All seven new hard findings addressed on PR #10 head 50d0b3fd; local Release-effective dependency-free suites pass; hosted exact-head Verify pending",
+      "observed_revision": 26,
+      "observed_head": "50d0b3fdac935dac82fb7bfa10d1aec8b23deaaf",
+      "next_action": "Await exact-head Verify, inspect any fresh review findings, then reply/resolve all seven threads and mark INTEGRATE_READY only if every gate passes."
     }
   },
   "last_transition": {
