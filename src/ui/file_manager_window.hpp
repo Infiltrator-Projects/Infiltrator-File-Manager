@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace infiltrator::files {
@@ -65,6 +66,9 @@ private:
     static void on_view_mode_toggled(GtkToggleButton *button, gpointer user_data);
     static void on_factory_setup(GtkSignalListItemFactory *factory, GtkListItem *item, gpointer user_data);
     static void on_factory_bind(GtkSignalListItemFactory *factory, GtkListItem *item, gpointer user_data);
+    static void on_factory_unbind(GtkSignalListItemFactory *factory,
+                                  GtkListItem *item,
+                                  gpointer user_data);
     static void on_icon_factory_setup(GtkSignalListItemFactory *factory,
                                       GtkListItem *item,
                                       gpointer user_data);
@@ -83,6 +87,13 @@ private:
     static void on_primary_selection_changed(GObject *object,
                                              GParamSpec *pspec,
                                              gpointer user_data);
+    static void on_temporal_policy_changed(GFileMonitor *monitor,
+                                           GFile *file,
+                                           GFile *other_file,
+                                           GFileMonitorEvent event_type,
+                                           gpointer user_data);
+    static void on_modified_cell_finalized(gpointer user_data,
+                                           GObject *where_object_was);
 
     void build_ui(GtkApplication *application);
     void apply_theme();
@@ -97,6 +108,8 @@ private:
     void update_status();
     void sync_primary_from_multi();
     void sync_multi_from_primary();
+    void arm_temporal_policy_monitor();
+    void refresh_modified_cells();
     [[nodiscard]] GFile *file_from_location_text(const char *text) const;
 
     GtkWidget *window_{nullptr};
@@ -118,12 +131,15 @@ private:
     GtkMultiSelection *selection_{nullptr};
     GtkSingleSelection *primary_selection_{nullptr};
     GFile *current_location_{nullptr};
+    GFileMonitor *temporal_policy_monitor_{nullptr};
+    std::unordered_set<GtkWidget *> modified_cells_;
     std::vector<Location> history_;
     std::size_t history_index_{0};
     ViewMode view_mode_{ViewMode::List};
     bool operation_surface_installed_{false};
     bool selection_syncing_{false};
     bool current_location_available_{true};
+    bool temporal_policy_monitoring_parent_{false};
 };
 
 } // namespace infiltrator::files
