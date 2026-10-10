@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "revision": 21,
+  "revision": 22,
   "mode": "WORK",
-  "updated_at": "2026-10-10T13:54:12.438Z",
+  "updated_at": "2026-10-10T13:56:39.301Z",
   "baseline": {
     "main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
     "version": "0.1.16",
@@ -11,7 +11,7 @@
   },
   "stroke": {
     "id": "files-20261010-destination-ownership",
-    "phase": "INTEGRATING",
+    "phase": "FIX_REQUIRED",
     "package": {
       "title": "Protect destination ownership during transfers and replacement rollback",
       "golden_journeys": [
@@ -46,7 +46,7 @@
       "base_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
       "head_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
       "draft": false,
-      "status": "INTEGRATE_READY: complete formal hard set resolved on f5f2b5de; all review threads resolved; exact-head Verify 38057074480 passed 10/10 tests.",
+      "status": "FIX_REQUIRED: independent Integrator post-review verification and exact-head Codex review found seven unresolved findings on f5f2b5de; no merge.",
       "changed_files": [
         "README.md",
         "src/core/destination_ownership.hpp",
@@ -66,7 +66,8 @@
         "Release-effective deterministic tests cover complete child proof, staged-backup replacement and real /tmp-to-/dev/shm cross-volume move.",
         "Local direct g++ Release-equivalent warning builds and destination/operation/transfer tests passed; full CMake unavailable locally.",
         "Exact-head Verify run 38057074480 succeeded for f5f2b5de58abb0d65d0a8814b79706536922e7a3; build passed and 10/10 tests passed.",
-        "All six formal-review threads have exact-head replies and are resolved; total unresolved thread count is zero."
+        "All six formal-review threads have exact-head replies and are resolved; total unresolved thread count is zero.",
+        "Post-review exact-head Codex review PRR_kwDOU9Z1nc8AAAABRpWjMA opened seven unresolved threads on f5f2b5de58abb0d65d0a8814b79706536922e7a3; exact-head CI remains green but integration gates fail."
       ]
     },
     "review": {
@@ -160,17 +161,112 @@
         "addressed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
         "resolved_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
         "resolution": "Staged identity is recorded; rollback and cleanup atomically quarantine and verify before restoring/removing. Deterministic backup replacement tests passed."
+      },
+      {
+        "id": "directory-publish-ownership-race",
+        "severity": "P1",
+        "paths": [
+          "src/core/transfer_operation_engine.cpp"
+        ],
+        "finding": "After exclusive directory creation, a competing writer can swap the published directory before record(), causing the competitor inode to be recorded as owned and later mutated or removed.",
+        "required": "Create and identify the directory privately, then publish atomically, or use an equivalent creation/identity mechanism that cannot derive ownership from a swappable public pathname. Add a deterministic Release race fixture.",
+        "threads": [
+          "PRRT_kwDOU9Z1nc6rEfoJ"
+        ],
+        "status": "open",
+        "observed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3"
+      },
+      {
+        "id": "stage-destination-mismatch-restore",
+        "severity": "P1",
+        "paths": [
+          "src/core/recovery_operation_engine.cpp"
+        ],
+        "finding": "If destination is replaced between identity capture and staging rename, stage_destination moves the competitor to the hidden backup, detects mismatch, then returns without restoring it; the visible destination is left missing.",
+        "required": "On identity mismatch, restore the renamed object to the original pathname with no-replace semantics and report/retain the exact quarantine path if restoration is unsafe. Add a deterministic staging-window fixture.",
+        "threads": [
+          "PRRT_kwDOU9Z1nc6rEfoM"
+        ],
+        "status": "open",
+        "observed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3"
+      },
+      {
+        "id": "same-volume-source-swap-rollback",
+        "severity": "P1",
+        "paths": [
+          "src/core/transfer_operation_engine.cpp"
+        ],
+        "finding": "If source identity changes between capture and same-volume rename, the replacement object is moved to destination; verification fails but the unrelated object is not restored.",
+        "required": "Quarantine and verify the source before publishing it at destination, or restore the moved object safely on mismatch. Add a deterministic source-swap Release test.",
+        "threads": [
+          "PRRT_kwDOU9Z1nc6rEfoN"
+        ],
+        "status": "open",
+        "observed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3"
+      },
+      {
+        "id": "first-commit-verification-cleanup",
+        "severity": "P2",
+        "paths": [
+          "src/core/transfer_operation_engine.cpp"
+        ],
+        "finding": "When the first post-copy verify_all fails, the source remains but unchanged owned destination outputs are left behind instead of being ownership-safely cleaned.",
+        "required": "Run cleanup_owned for unchanged owned outputs while retaining the competing replacement and report any retained partial state honestly.",
+        "threads": [
+          "PRRT_kwDOU9Z1nc6rEfoQ"
+        ],
+        "status": "open",
+        "observed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3"
+      },
+      {
+        "id": "cross-volume-copy-shape-regression",
+        "severity": "P1",
+        "paths": [
+          "src/core/operation_engine.cpp",
+          "src/core/transfer_operation_engine.cpp"
+        ],
+        "finding": "Delegation removed source-versus-destination shape verification; source growth or new entries during copy can be omitted while recorded destination identities still verify, after which the newer source is deleted.",
+        "required": "After quarantining the source into a stable pathname, compare supported source content/shape with the destination before source deletion. Add mutation-during-copy Release coverage.",
+        "threads": [
+          "PRRT_kwDOU9Z1nc6rEfoS"
+        ],
+        "status": "open",
+        "observed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3"
+      },
+      {
+        "id": "source-quarantine-delete-failure-restore",
+        "severity": "P1",
+        "paths": [
+          "src/core/transfer_operation_engine.cpp"
+        ],
+        "finding": "If remove_all(source_quarantine) fails, remaining source content stays hidden under an internal cleanup name while the error implies the original path remains available.",
+        "required": "Attempt no-replace restoration of any remaining quarantine to source before returning; if unsafe, report the exact retained path. Add partial deletion failure evidence.",
+        "threads": [
+          "PRRT_kwDOU9Z1nc6rEfoV"
+        ],
+        "status": "open",
+        "observed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3"
+      },
+      {
+        "id": "cross-volume-test-portability",
+        "severity": "P2",
+        "paths": [
+          "tests/operation_engine_test.cpp"
+        ],
+        "finding": "The documented test suite fails when /dev/shm is unavailable, unwritable or on the same device as the temporary directory.",
+        "required": "Treat absence of two writable distinct filesystems as a skipped qualification or explicitly provision the second mount; retain real cross-volume evidence in CI.",
+        "threads": [
+          "PRRT_kwDOU9Z1nc6rEfoX"
+        ],
+        "status": "open",
+        "observed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3"
       }
     ],
     "integration": null,
     "release": null,
     "blocker": null
   },
-  "lease": {
-    "role": "Integrator",
-    "token": "integrator-destination-ownership-20261010T135412Z",
-    "expires_at": "2026-10-10T14:39:12.438Z"
-  },
+  "lease": null,
   "heartbeats": {
     "Architect": {
       "at": "2026-10-10T12:55:59.134Z",
@@ -194,11 +290,11 @@
       "next_action": "Fixer must claim PR #10, correct the complete five-finding hard set on the same branch, add Release-effective failure/cancellation/race tests, resolve all six threads with evidence, and rerun exact-head CI."
     },
     "Integrator": {
-      "at": "2026-10-10T13:54:12.438Z",
-      "status": "Claimed exact-head integration verification for PR #10",
-      "observed_revision": 20,
+      "at": "2026-10-10T13:56:39.301Z",
+      "status": "Integration blocked by seven new exact-head post-review findings; no merge",
+      "observed_revision": 21,
       "observed_head": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
-      "next_action": "Independently inspect the complete post-review delta, confirm exact-head CI and resolved hard set, then merge only with expected-head protection if every gate remains satisfied."
+      "next_action": "Fixer must correct the complete seven-finding post-review set on PR #10, resolve all exact-head threads, rerun Release-effective tests/CI, and return the refreshed head to independent review/integration verification."
     },
     "Fixer": {
       "at": "2026-10-10T13:50:01.289Z",
@@ -210,9 +306,9 @@
   },
   "last_transition": {
     "role": "Integrator",
-    "from": "INTEGRATE_READY",
-    "to": "INTEGRATING",
-    "reason": "Claimed PR #10 at exact head f5f2b5de after Fixer resolved the formal hard set, all threads reached resolved state and exact-head CI passed."
+    "from": "INTEGRATING",
+    "to": "FIX_REQUIRED",
+    "reason": "Independent post-review verification plus exact-head Codex review PRR_kwDOU9Z1nc8AAAABRpWjMA found seven unresolved correctness/recovery/test findings on f5f2b5de; integration gates fail despite green run 38057074480."
   },
   "health": {
     "nonce": "files-swarm-20261010-1136",
