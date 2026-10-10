@@ -303,9 +303,15 @@ inline bool verify_all(const OwnedOutputs &outputs, std::error_code &error) noex
     return !outputs.empty();
 }
 
-inline std::filesystem::path quarantine_owned(const OwnedOutput &output,
-                                              std::error_code &error) noexcept
+inline std::filesystem::path quarantine_owned(
+    const OwnedOutput &output,
+    std::error_code &error,
+    std::filesystem::path *retained_quarantine = nullptr) noexcept
 {
+    if (retained_quarantine != nullptr) {
+        retained_quarantine->clear();
+    }
+
     std::filesystem::path quarantine = quarantine_no_replace(output.path, error);
     if (quarantine.empty()) {
         return {};
@@ -318,7 +324,10 @@ inline std::filesystem::path quarantine_owned(const OwnedOutput &output,
     }
 
     std::error_code restore_error;
-    (void)restore_quarantine(quarantine, output.path, restore_error);
+    const bool restored = restore_quarantine(quarantine, output.path, restore_error);
+    if (!restored && retained_quarantine != nullptr) {
+        *retained_quarantine = quarantine;
+    }
     error = inspect_error ? inspect_error
                           : (restore_error ? restore_error
                                            : std::make_error_code(std::errc::state_not_recoverable));
@@ -364,7 +373,8 @@ inline bool move_owned_no_replace(const OwnedOutput &source,
         return false;
     }
 
-    const std::filesystem::path quarantine = quarantine_owned(source, error);
+    const std::filesystem::path quarantine =
+        quarantine_owned(source, error, retained_quarantine);
     if (quarantine.empty()) {
         return false;
     }
@@ -388,9 +398,15 @@ inline bool move_owned_no_replace(const OwnedOutput &source,
 
 inline bool restore_owned(const OwnedOutput &output,
                           const std::filesystem::path &destination,
-                          std::error_code &error) noexcept
+                          std::error_code &error,
+                          std::filesystem::path *retained_quarantine = nullptr) noexcept
 {
-    const std::filesystem::path quarantine = quarantine_owned(output, error);
+    if (retained_quarantine != nullptr) {
+        retained_quarantine->clear();
+    }
+
+    const std::filesystem::path quarantine =
+        quarantine_owned(output, error, retained_quarantine);
     if (quarantine.empty()) {
         return false;
     }
@@ -401,8 +417,14 @@ inline bool restore_owned(const OwnedOutput &output,
 
     const std::error_code move_error = error;
     std::error_code restore_error;
-    (void)restore_quarantine(quarantine, output.path, restore_error);
-    error = restore_error ? restore_error : move_error;
+    if (!restore_quarantine(quarantine, output.path, restore_error)) {
+        if (retained_quarantine != nullptr) {
+            *retained_quarantine = quarantine;
+        }
+        error = restore_error;
+        return false;
+    }
+    error = move_error;
     return false;
 }
 
@@ -414,7 +436,8 @@ inline bool remove_owned_tree(const OwnedOutput &output,
         retained_quarantine->clear();
     }
 
-    const std::filesystem::path quarantine = quarantine_owned(output, error);
+    const std::filesystem::path quarantine =
+        quarantine_owned(output, error, retained_quarantine);
     if (quarantine.empty()) {
         return false;
     }
