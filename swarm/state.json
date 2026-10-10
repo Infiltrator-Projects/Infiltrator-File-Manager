@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "revision": 8,
+  "revision": 9,
   "mode": "WORK",
-  "updated_at": "2026-10-10T12:12:18.696Z",
+  "updated_at": "2026-10-10T12:20:17.319Z",
   "baseline": {
     "main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
     "version": "0.1.16",
@@ -39,7 +39,31 @@
       "source_review": "https://github.com/Infiltrator-Projects/Infiltrator-File-Manager/issues/2#issuecomment-6096430693"
     },
     "base_main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
-    "candidate": null,
+    "candidate": {
+      "pr": 10,
+      "url": "https://github.com/Infiltrator-Projects/Infiltrator-File-Manager/pull/10",
+      "branch": "swarm/destination-ownership",
+      "base_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
+      "head_sha": "3cfce07a630075047458d361549a23f7ca368a0a",
+      "draft": false,
+      "status": "Implementation committed; exact-head hosted CI pending.",
+      "changed_files": [
+        "CMakeLists.txt",
+        "README.md",
+        "src/core/destination_ownership.hpp",
+        "src/core/operation_engine.cpp",
+        "src/core/recovery_operation_engine.cpp",
+        "src/core/transfer_operation_engine.cpp",
+        "tests/destination_ownership_test.cpp"
+      ],
+      "evidence": [
+        "Atomic RENAME_NOREPLACE destination commits.",
+        "Exclusive O_CREAT|O_EXCL regular-file creation.",
+        "Inode/device ownership ledger for cleanup.",
+        "Rollback refuses occupied destination and retains staged original.",
+        "Deterministic destination-ownership regression test."
+      ]
+    },
     "review": null,
     "hard_findings": [],
     "integration": null,
@@ -49,7 +73,7 @@
   "lease": {
     "role": "Builder",
     "token": "builder-destination-ownership-20261010T1212Z",
-    "expires_at": "2026-10-10T12:57:18.696Z"
+    "expires_at": "2026-10-10T13:05:17.319Z"
   },
   "heartbeats": {
     "Architect": {
@@ -60,11 +84,11 @@
       "next_action": "Builder must verify Architect comment 6097146411 and append the next ordered receipt."
     },
     "Builder": {
-      "at": "2026-10-10T12:12:18.696Z",
-      "status": "building destination-ownership package",
-      "observed_revision": 7,
-      "observed_head": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
-      "next_action": "Read current authority and implement the full no-clobber/owned-cleanup/replacement-rollback package in one PR."
+      "at": "2026-10-10T12:20:17.319Z",
+      "status": "PR #10 opened at 3cfce07a; exact-head CI pending",
+      "observed_revision": 8,
+      "observed_head": "3cfce07a630075047458d361549a23f7ca368a0a",
+      "next_action": "Inspect exact-head hosted CI, correct any failures, then transition the same PR to REVIEW_READY."
     },
     "Reviewer": {
       "at": "2026-10-10T11:54:35.620Z",
