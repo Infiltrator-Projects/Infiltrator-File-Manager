@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "revision": 13,
+  "revision": 14,
   "mode": "WORK",
-  "updated_at": "2026-10-10T12:55:59.134Z",
+  "updated_at": "2026-10-10T13:13:49.737Z",
   "baseline": {
     "main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
     "version": "0.1.16",
@@ -44,9 +44,9 @@
       "url": "https://github.com/Infiltrator-Projects/Infiltrator-File-Manager/pull/10",
       "branch": "swarm/destination-ownership",
       "base_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
-      "head_sha": "3cfce07a630075047458d361549a23f7ca368a0a",
+      "head_sha": "b4a48717cdcae598a6dab92ec538700769c774d7",
       "draft": false,
-      "status": "Implementation committed; exact-head hosted CI pending.",
+      "status": "BUILDING: exact-head CI green but five review threads require complete correction; Release test currently inert.",
       "changed_files": [
         "CMakeLists.txt",
         "README.md",
@@ -72,8 +72,8 @@
   },
   "lease": {
     "role": "Builder",
-    "token": "builder-destination-ownership-20261010T1212Z",
-    "expires_at": "2026-10-10T13:05:17.319Z"
+    "token": "builder-destination-ownership-20261010T1314Z",
+    "expires_at": "2026-10-10T13:58:49.738Z"
   },
   "heartbeats": {
     "Architect": {
@@ -84,11 +84,11 @@
       "next_action": "Builder must complete the existing PR #10 hard set and Release-effective evidence; do not nominate another package until this stroke is reviewed, integrated and published."
     },
     "Builder": {
-      "at": "2026-10-10T12:20:17.319Z",
-      "status": "PR #10 opened at 3cfce07a; exact-head CI pending",
-      "observed_revision": 8,
-      "observed_head": "3cfce07a630075047458d361549a23f7ca368a0a",
-      "next_action": "Inspect exact-head hosted CI, correct any failures, then transition the same PR to REVIEW_READY."
+      "at": "2026-10-10T13:13:49.737Z",
+      "status": "Reclaimed expired Builder lease; correcting complete PR #10 hard set",
+      "observed_revision": 13,
+      "observed_head": "b4a48717cdcae598a6dab92ec538700769c774d7",
+      "next_action": "Implement atomic quarantine cleanup, directory claim checks, owned-partial recovery and Release-effective tests; reconcile every review thread and rerun exact-head CI."
     },
     "Reviewer": {
       "at": "2026-10-10T12:25:57.300Z",
