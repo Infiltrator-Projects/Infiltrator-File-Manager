@@ -93,6 +93,46 @@ inline bool record_fd(const std::filesystem::path &path,
     return true;
 }
 
+// POSIX has no fully general directory equivalent of RENAME_NOREPLACE. When
+// the Linux primitive is unavailable, hard-link publication is a safe
+// no-clobber fallback for non-directories. Directory callers fail closed
+// rather than reverting to a check-then-rename race.
+inline bool rename_no_replace_non_directory_fallback(
+    const std::filesystem::path &source,
+    const std::filesystem::path &destination,
+    std::error_code &error) noexcept
+{
+    struct stat source_status {};
+    if (::lstat(source.c_str(), &source_status) != 0) {
+        error = std::error_code(errno, std::generic_category());
+        return false;
+    }
+    if (S_ISDIR(source_status.st_mode)) {
+        error = std::make_error_code(std::errc::operation_not_supported);
+        return false;
+    }
+
+    if (::linkat(AT_FDCWD,
+                 source.c_str(),
+                 AT_FDCWD,
+                 destination.c_str(),
+                 0) != 0) {
+        error = std::error_code(errno, std::generic_category());
+        return false;
+    }
+
+    if (::unlink(source.c_str()) == 0) {
+        error.clear();
+        return true;
+    }
+
+    // Both names still reference the same object. Do not race another writer
+    // by unlinking the destination after a pathname-only recheck; report the
+    // partial namespace state conservatively instead of risking data loss.
+    error = std::error_code(errno, std::generic_category());
+    return false;
+}
+
 inline bool rename_no_replace(const std::filesystem::path &source,
                               const std::filesystem::path &destination,
                               std::error_code &error) noexcept
@@ -107,13 +147,17 @@ inline bool rename_no_replace(const std::filesystem::path &source,
         error.clear();
         return true;
     }
-    error = std::error_code(errno, std::generic_category());
-    return false;
+
+    const int rename_error = errno;
+    if (rename_error != ENOSYS && rename_error != EINVAL &&
+        rename_error != EOPNOTSUPP && rename_error != ENOTSUP) {
+        error = std::error_code(rename_error, std::generic_category());
+        return false;
+    }
+
+    return rename_no_replace_non_directory_fallback(source, destination, error);
 #else
-    (void)source;
-    (void)destination;
-    error = std::make_error_code(std::errc::operation_not_supported);
-    return false;
+    return rename_no_replace_non_directory_fallback(source, destination, error);
 #endif
 }
 
@@ -177,6 +221,38 @@ inline std::filesystem::path create_private_directory(
     return {};
 }
 
+inline std::filesystem::path create_private_symlink(
+    const std::filesystem::path &public_path,
+    const std::filesystem::path &target,
+    OwnedOutputs &outputs,
+    std::error_code &error) noexcept
+{
+    static std::atomic<std::uint64_t> serial{0};
+    for (std::uint32_t attempt = 0; attempt < 1024U; ++attempt) {
+        const std::uint64_t id = serial.fetch_add(1U, std::memory_order_relaxed);
+        const auto private_path =
+            public_path.parent_path() /
+            (".infiltrator-link-" + std::to_string(static_cast<long long>(::getpid())) +
+             "-" + std::to_string(id));
+        std::filesystem::create_symlink(target, private_path, error);
+        if (error == std::errc::file_exists) {
+            error.clear();
+            continue;
+        }
+        if (error) {
+            return {};
+        }
+        if (record(private_path, outputs, error)) {
+            return private_path;
+        }
+        std::error_code cleanup_error;
+        (void)std::filesystem::remove(private_path, cleanup_error);
+        return {};
+    }
+    error = std::make_error_code(std::errc::file_exists);
+    return {};
+}
+
 inline bool publish_private_tree(const std::filesystem::path &private_root,
                                  const std::filesystem::path &public_root,
                                  OwnedOutputs &outputs,
@@ -191,6 +267,18 @@ inline bool publish_private_tree(const std::filesystem::path &private_root,
                           ? public_root
                           : public_root / relative;
     }
+    return true;
+}
+
+inline bool publish_private_output(const std::filesystem::path &private_path,
+                                   const std::filesystem::path &public_path,
+                                   OwnedOutput &output,
+                                   std::error_code &error) noexcept
+{
+    if (!rename_no_replace(private_path, public_path, error)) {
+        return false;
+    }
+    output.path = public_path;
     return true;
 }
 
@@ -237,11 +325,45 @@ inline std::filesystem::path quarantine_owned(const OwnedOutput &output,
     return {};
 }
 
+inline bool destination_is_different_device(const std::filesystem::path &source,
+                                            const std::filesystem::path &destination,
+                                            bool &different,
+                                            std::error_code &error) noexcept
+{
+    struct stat source_status {};
+    struct stat parent_status {};
+    if (::lstat(source.c_str(), &source_status) != 0) {
+        error = std::error_code(errno, std::generic_category());
+        return false;
+    }
+    if (::stat(destination.parent_path().c_str(), &parent_status) != 0) {
+        error = std::error_code(errno, std::generic_category());
+        return false;
+    }
+    different = source_status.st_dev != parent_status.st_dev;
+    error.clear();
+    return true;
+}
+
 inline bool move_owned_no_replace(const OwnedOutput &source,
                                   const std::filesystem::path &destination,
                                   OwnedOutput &moved,
-                                  std::error_code &error) noexcept
+                                  std::error_code &error,
+                                  std::filesystem::path *retained_quarantine = nullptr) noexcept
 {
+    if (retained_quarantine != nullptr) {
+        retained_quarantine->clear();
+    }
+
+    bool different_device = false;
+    if (!destination_is_different_device(source.path, destination, different_device, error)) {
+        return false;
+    }
+    if (different_device) {
+        error = std::make_error_code(std::errc::cross_device_link);
+        return false;
+    }
+
     const std::filesystem::path quarantine = quarantine_owned(source, error);
     if (quarantine.empty()) {
         return false;
@@ -253,8 +375,14 @@ inline bool move_owned_no_replace(const OwnedOutput &source,
 
     const std::error_code publish_error = error;
     std::error_code restore_error;
-    (void)restore_quarantine(quarantine, source.path, restore_error);
-    error = restore_error ? restore_error : publish_error;
+    if (!restore_quarantine(quarantine, source.path, restore_error)) {
+        if (retained_quarantine != nullptr) {
+            *retained_quarantine = quarantine;
+        }
+        error = restore_error;
+        return false;
+    }
+    error = publish_error;
     return false;
 }
 
@@ -278,15 +406,44 @@ inline bool restore_owned(const OwnedOutput &output,
     return false;
 }
 
-inline bool remove_owned_tree(const OwnedOutput &output, std::error_code &error) noexcept
+inline bool remove_owned_tree(const OwnedOutput &output,
+                              std::error_code &error,
+                              std::filesystem::path *retained_quarantine = nullptr) noexcept
 {
+    if (retained_quarantine != nullptr) {
+        retained_quarantine->clear();
+    }
+
     const std::filesystem::path quarantine = quarantine_owned(output, error);
     if (quarantine.empty()) {
         return false;
     }
 
-    (void)std::filesystem::remove_all(quarantine, error);
-    return !error;
+    std::filesystem::remove_all(quarantine, error);
+    if (!error) {
+        return true;
+    }
+
+    const std::error_code remove_error = error;
+    std::error_code presence_error;
+    const auto status = std::filesystem::symlink_status(quarantine, presence_error);
+    const bool remains = !presence_error && status.type() != std::filesystem::file_type::not_found;
+    if (!remains) {
+        error = remove_error;
+        return false;
+    }
+
+    std::error_code restore_error;
+    if (restore_quarantine(quarantine, output.path, restore_error)) {
+        error = remove_error;
+        return false;
+    }
+
+    if (retained_quarantine != nullptr) {
+        *retained_quarantine = quarantine;
+    }
+    error = restore_error ? restore_error : remove_error;
+    return false;
 }
 
 inline bool cleanup_owned(OwnedOutputs &outputs, std::error_code &first_error) noexcept
