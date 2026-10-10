@@ -3,6 +3,7 @@
 #include "detail_metadata.hpp"
 
 #include <infiltratr/design.h>
+#include <infiltratr/temporal_posix.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -16,7 +17,7 @@ namespace {
 constexpr const char *kDirectoryAttributes =
     "standard::name,standard::display-name,standard::type,standard::size,"
     "standard::content-type,standard::icon,standard::is-hidden,standard::is-symlink,"
-    "time::modified";
+    "time::modified,time::modified-usec,time::modified-nsec";
 
 constexpr int kDetailIconSize = 24;
 constexpr int kDetailTypeWidth = 160;
@@ -125,6 +126,7 @@ FileManagerWindow::FileManagerWindow(GtkApplication *application)
 {
     build_ui(application);
     apply_theme();
+    arm_temporal_policy_monitor();
 
     g_object_weak_ref(G_OBJECT(window_), &FileManagerWindow::on_window_finalized, this);
 
@@ -135,8 +137,18 @@ FileManagerWindow::FileManagerWindow(GtkApplication *application)
 
 FileManagerWindow::~FileManagerWindow()
 {
-    // Stop mount callbacks before any UI/model references owned by this object are released.
+    // Stop external callbacks before any UI/model references owned by this object are released.
     mounted_places_monitor_.reset();
+    if (temporal_policy_monitor_ != nullptr) {
+        g_signal_handlers_disconnect_by_data(temporal_policy_monitor_, this);
+        g_object_unref(temporal_policy_monitor_);
+        temporal_policy_monitor_ = nullptr;
+    }
+    for (GtkWidget *cell : modified_cells_) {
+        g_object_weak_unref(
+            G_OBJECT(cell), &FileManagerWindow::on_modified_cell_finalized, this);
+    }
+    modified_cells_.clear();
 
     if (primary_selection_ != nullptr) {
         g_object_unref(primary_selection_);
@@ -295,6 +307,7 @@ void FileManagerWindow::build_ui(GtkApplication *application)
                           GINT_TO_POINTER(static_cast<int>(field)));
         g_signal_connect(factory, "setup", G_CALLBACK(on_factory_setup), this);
         g_signal_connect(factory, "bind", G_CALLBACK(on_factory_bind), this);
+        g_signal_connect(factory, "unbind", G_CALLBACK(on_factory_unbind), this);
 
         GtkColumnViewColumn *column = gtk_column_view_column_new(title, factory);
         gtk_column_view_column_set_expand(column, expand);
@@ -780,6 +793,98 @@ void FileManagerWindow::sync_multi_from_primary()
     selection_syncing_ = false;
 }
 
+void FileManagerWindow::arm_temporal_policy_monitor()
+{
+    if (temporal_policy_monitor_ != nullptr) {
+        g_signal_handlers_disconnect_by_data(temporal_policy_monitor_, this);
+        g_object_unref(temporal_policy_monitor_);
+        temporal_policy_monitor_ = nullptr;
+    }
+
+    char directory[4096]{};
+    if (!infiltratr_temporal_posix_policy_directory(directory, sizeof(directory))) {
+        return;
+    }
+
+    GFile *policy_directory = g_file_new_for_path(directory);
+    const bool directory_exists = g_file_test(directory, G_FILE_TEST_IS_DIR);
+    temporal_policy_monitoring_parent_ = !directory_exists;
+    GFile *target = directory_exists
+        ? G_FILE(g_object_ref(policy_directory))
+        : g_file_get_parent(policy_directory);
+    g_object_unref(policy_directory);
+    if (target == nullptr) {
+        return;
+    }
+
+    GError *error = nullptr;
+    temporal_policy_monitor_ = g_file_monitor_directory(
+        target, G_FILE_MONITOR_WATCH_MOVES, nullptr, &error);
+    g_object_unref(target);
+    if (error != nullptr) {
+        g_error_free(error);
+    }
+    if (temporal_policy_monitor_ != nullptr) {
+        g_signal_connect(temporal_policy_monitor_, "changed",
+                         G_CALLBACK(on_temporal_policy_changed), this);
+    }
+}
+
+void FileManagerWindow::refresh_modified_cells()
+{
+    for (GtkWidget *cell : modified_cells_) {
+        auto *info = G_FILE_INFO(
+            g_object_get_data(G_OBJECT(cell), "ifm-modified-info"));
+        if (info == nullptr) {
+            continue;
+        }
+        const std::string value = detail_modified_text(info);
+        gtk_label_set_text(GTK_LABEL(cell), value.c_str());
+    }
+}
+
+void FileManagerWindow::on_temporal_policy_changed(GFileMonitor *monitor,
+                                                   GFile *file,
+                                                   GFile *other_file,
+                                                   GFileMonitorEvent event_type,
+                                                   gpointer user_data)
+{
+    (void)monitor;
+    (void)event_type;
+    auto *self = static_cast<FileManagerWindow *>(user_data);
+    const auto has_basename = [](GFile *candidate, const char *expected) {
+        if (candidate == nullptr) {
+            return false;
+        }
+        char *basename = g_file_get_basename(candidate);
+        const bool matches = g_strcmp0(basename, expected) == 0;
+        g_free(basename);
+        return matches;
+    };
+
+    if (self->temporal_policy_monitoring_parent_) {
+        if (!has_basename(file, "infiltrator") &&
+            !has_basename(other_file, "infiltrator")) {
+            return;
+        }
+        self->arm_temporal_policy_monitor();
+        self->refresh_modified_cells();
+        return;
+    }
+
+    if (has_basename(file, "presentation.conf") ||
+        has_basename(other_file, "presentation.conf")) {
+        self->refresh_modified_cells();
+    }
+}
+
+void FileManagerWindow::on_modified_cell_finalized(gpointer user_data,
+                                                   GObject *where_object_was)
+{
+    auto *self = static_cast<FileManagerWindow *>(user_data);
+    self->modified_cells_.erase(GTK_WIDGET(where_object_was));
+}
+
 GFile *FileManagerWindow::file_from_location_text(const char *text) const
 {
     if (text == nullptr || text[0] == '\0') {
@@ -880,7 +985,7 @@ void FileManagerWindow::on_factory_setup(GtkSignalListItemFactory *factory,
                                          GtkListItem *item,
                                          gpointer user_data)
 {
-    (void)user_data;
+    auto *self = static_cast<FileManagerWindow *>(user_data);
 
     const int encoded = GPOINTER_TO_INT(
         g_object_get_data(G_OBJECT(factory), "ifm-detail-field"));
@@ -928,13 +1033,18 @@ void FileManagerWindow::on_factory_setup(GtkSignalListItemFactory *factory,
     gtk_widget_set_halign(label, GTK_ALIGN_FILL);
     gtk_widget_add_css_class(label, "ifm-detail-secondary");
     gtk_list_item_set_child(item, label);
+    if (field == DetailField::Modified) {
+        self->modified_cells_.insert(label);
+        g_object_weak_ref(
+            G_OBJECT(label), &FileManagerWindow::on_modified_cell_finalized, self);
+    }
 }
 
 void FileManagerWindow::on_factory_bind(GtkSignalListItemFactory *factory,
                                         GtkListItem *item,
                                         gpointer user_data)
 {
-    (void)user_data;
+    auto *self = static_cast<FileManagerWindow *>(user_data);
 
     auto *info = G_FILE_INFO(gtk_list_item_get_item(item));
     GtkWidget *child = gtk_list_item_get_child(item);
@@ -973,10 +1083,29 @@ void FileManagerWindow::on_factory_bind(GtkSignalListItemFactory *factory,
         break;
     }
     case DetailField::Modified: {
+        g_object_set_data_full(
+            G_OBJECT(child), "ifm-modified-info", g_object_ref(info),
+            reinterpret_cast<GDestroyNotify>(g_object_unref));
         const std::string value = detail_modified_text(info);
         gtk_label_set_text(GTK_LABEL(child), value.c_str());
         break;
     }
+    }
+}
+
+void FileManagerWindow::on_factory_unbind(GtkSignalListItemFactory *factory,
+                                          GtkListItem *item,
+                                          gpointer user_data)
+{
+    (void)user_data;
+    const int encoded = GPOINTER_TO_INT(
+        g_object_get_data(G_OBJECT(factory), "ifm-detail-field"));
+    if (encoded != static_cast<int>(DetailField::Modified)) {
+        return;
+    }
+    if (GtkWidget *child = gtk_list_item_get_child(item); child != nullptr) {
+        g_object_set_data_full(
+            G_OBJECT(child), "ifm-modified-info", nullptr, nullptr);
     }
 }
 

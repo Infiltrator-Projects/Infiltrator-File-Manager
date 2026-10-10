@@ -69,6 +69,24 @@ bool detail_modified_value(GFileInfo *info, guint64 *value)
     return true;
 }
 
+guint32 detail_modified_nanoseconds(GFileInfo *info)
+{
+    if (info == nullptr) {
+        return 0U;
+    }
+    constexpr const char *kModifiedNsec = "time::modified-nsec";
+    constexpr const char *kModifiedUsec = "time::modified-usec";
+    if (g_file_info_has_attribute(info, kModifiedNsec)) {
+        return g_file_info_get_attribute_uint32(info, kModifiedNsec);
+    }
+    if (g_file_info_has_attribute(info, kModifiedUsec)) {
+        const guint32 microseconds =
+            g_file_info_get_attribute_uint32(info, kModifiedUsec);
+        return microseconds <= 999999U ? microseconds * 1000U : 0U;
+    }
+    return 0U;
+}
+
 int compare_optional_u64(const bool left_present,
                          const guint64 left,
                          const bool right_present,
@@ -490,8 +508,7 @@ int detail_compare_type(GFileInfo *left, GFileInfo *right)
 {
     const std::string left_type = detail_type_text(left);
     const std::string right_type = detail_type_text(right);
-    const int by_type = compare_text(left_type.c_str(), right_type.c_str());
-    return by_type != 0 ? by_type : name_tiebreak(left, right);
+    return compare_text(left_type.c_str(), right_type.c_str());
 }
 
 int detail_compare_size(GFileInfo *left, GFileInfo *right)
@@ -500,9 +517,8 @@ int detail_compare_size(GFileInfo *left, GFileInfo *right)
     guint64 right_size = 0U;
     const bool left_present = detail_size_value(left, &left_size);
     const bool right_present = detail_size_value(right, &right_size);
-    const int by_size = compare_optional_u64(left_present, left_size,
-                                             right_present, right_size);
-    return by_size != 0 ? by_size : name_tiebreak(left, right);
+    return compare_optional_u64(left_present, left_size,
+                                right_present, right_size);
 }
 
 int detail_compare_modified(GFileInfo *left, GFileInfo *right)
@@ -511,9 +527,20 @@ int detail_compare_modified(GFileInfo *left, GFileInfo *right)
     guint64 right_modified = 0U;
     const bool left_present = detail_modified_value(left, &left_modified);
     const bool right_present = detail_modified_value(right, &right_modified);
-    const int by_modified = compare_optional_u64(left_present, left_modified,
-                                                 right_present, right_modified);
-    return by_modified != 0 ? by_modified : name_tiebreak(left, right);
+    const int by_seconds = compare_optional_u64(left_present, left_modified,
+                                                right_present, right_modified);
+    if (by_seconds != 0 || !left_present) {
+        return by_seconds;
+    }
+    const guint32 left_nanoseconds = detail_modified_nanoseconds(left);
+    const guint32 right_nanoseconds = detail_modified_nanoseconds(right);
+    if (left_nanoseconds < right_nanoseconds) {
+        return -1;
+    }
+    if (left_nanoseconds > right_nanoseconds) {
+        return 1;
+    }
+    return 0;
 }
 
 } // namespace infiltrator::files

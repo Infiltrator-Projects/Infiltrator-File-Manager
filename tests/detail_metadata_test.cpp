@@ -10,6 +10,7 @@
 using infiltrator::files::detail_compare_modified;
 using infiltrator::files::detail_compare_name;
 using infiltrator::files::detail_compare_size;
+using infiltrator::files::detail_compare_type;
 using infiltrator::files::detail_locale_time_format_without_seconds;
 using infiltrator::files::detail_modified_text;
 using infiltrator::files::detail_size_text;
@@ -96,6 +97,30 @@ int main()
         g_free(config_home);
         g_object_unref(file);
         return 8;
+    }
+
+    // Equal primary values must remain equal so GtkColumnViewSorter can consult
+    // a secondary sort column. Modified-time ordering also includes subsecond
+    // metadata when the filesystem exposes it.
+    g_file_info_set_size(larger, 1536);
+    g_file_info_set_attribute_uint64(
+        larger, G_FILE_ATTRIBUTE_TIME_MODIFIED, 46800U);
+    g_file_info_set_attribute_uint32(file, "time::modified-nsec", 100U);
+    g_file_info_set_attribute_uint32(larger, "time::modified-nsec", 900U);
+    if (detail_compare_type(file, larger) != 0 ||
+        detail_compare_size(file, larger) != 0 ||
+        detail_compare_modified(file, larger) >= 0) {
+        g_object_unref(larger);
+        g_free(config_home);
+        g_object_unref(file);
+        return 14;
+    }
+    g_file_info_set_attribute_uint32(larger, "time::modified-nsec", 100U);
+    if (detail_compare_modified(file, larger) != 0) {
+        g_object_unref(larger);
+        g_free(config_home);
+        g_object_unref(file);
+        return 15;
     }
     g_object_unref(larger);
 
