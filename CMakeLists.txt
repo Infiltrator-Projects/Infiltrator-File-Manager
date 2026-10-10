@@ -115,6 +115,23 @@ if(BUILD_TESTING)
     target_link_libraries(mounted-places-test PRIVATE infiltrator-files-core)
     add_test(NAME mounted-places COMMAND mounted-places-test)
 
+    add_executable(window-state-test
+        tests/window_state_test.cpp
+        src/ui/file_manager_window.cpp
+        src/ui/detail_metadata.cpp)
+    target_link_libraries(window-state-test PRIVATE infiltrator-files-core PkgConfig::GTK4)
+    find_program(XVFB_RUN_EXECUTABLE xvfb-run)
+    find_program(DBUS_RUN_SESSION_EXECUTABLE dbus-run-session)
+    if(XVFB_RUN_EXECUTABLE AND DBUS_RUN_SESSION_EXECUTABLE)
+        add_test(NAME window-state COMMAND "${DBUS_RUN_SESSION_EXECUTABLE}" --
+            "${XVFB_RUN_EXECUTABLE}" -a $<TARGET_FILE:window-state-test>)
+        set_tests_properties(window-state PROPERTIES
+            ENVIRONMENT "G_DEBUG=fatal-criticals;GTK_A11Y=none;GSETTINGS_BACKEND=memory"
+            TIMEOUT 45)
+    else()
+        message(STATUS "Headless window-state test requires xvfb-run and dbus-run-session")
+    endif()
+
     add_executable(operation-engine-test tests/operation_engine_test.cpp)
     target_link_libraries(operation-engine-test PRIVATE infiltrator-files-core)
     add_test(NAME operation-engine COMMAND operation-engine-test)

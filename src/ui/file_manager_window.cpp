@@ -19,6 +19,9 @@ constexpr const char *kDirectoryAttributes =
     "standard::content-type,standard::icon,standard::is-hidden,standard::is-symlink,"
     "time::modified,time::modified-usec,time::modified-nsec";
 
+constexpr const char *kLocationUnavailableStatus =
+    "Location unavailable. Reopen the location to retry.";
+
 constexpr int kDetailIconSize = 24;
 constexpr int kDetailTypeWidth = 160;
 constexpr int kDetailSizeWidth = 96;
@@ -150,10 +153,20 @@ FileManagerWindow::~FileManagerWindow()
     }
     modified_cells_.clear();
 
+    // Model callbacks capture this object. Own each model until all callbacks
+    // are disconnected, even if GTK disposes the views before the window.
+    for (GObject *model : {G_OBJECT(directory_list_), G_OBJECT(selection_),
+                          G_OBJECT(primary_selection_)}) {
+        if (model != nullptr) {
+            g_signal_handlers_disconnect_by_data(model, this);
+        }
+    }
     if (primary_selection_ != nullptr) {
         g_object_unref(primary_selection_);
         primary_selection_ = nullptr;
     }
+    g_clear_object(&selection_);
+    g_clear_object(&directory_list_);
     if (current_location_ != nullptr) {
         g_object_unref(current_location_);
         current_location_ = nullptr;
@@ -279,21 +292,22 @@ void FileManagerWindow::build_ui(GtkApplication *application)
     g_signal_connect(directory_list_, "notify::error", G_CALLBACK(on_loading_changed), this);
 
     GtkSortListModel *sort_model =
-        gtk_sort_list_model_new(G_LIST_MODEL(directory_list_), nullptr);
+        gtk_sort_list_model_new(G_LIST_MODEL(g_object_ref(directory_list_)), nullptr);
+    gtk_sort_list_model_set_incremental(sort_model, TRUE);
     // gtk_multi_selection_new() takes ownership of the sort-model reference.
     selection_ = gtk_multi_selection_new(G_LIST_MODEL(sort_model));
 
     // Single-item operation controllers still use the authoritative directory
     // model directly. Selection synchronization maps by GFileInfo identity/name
     // so presentation sorting can never redirect an operation to another item.
-    primary_selection_ = gtk_single_selection_new(G_LIST_MODEL(directory_list_));
+    primary_selection_ = gtk_single_selection_new(G_LIST_MODEL(g_object_ref(directory_list_)));
     gtk_single_selection_set_autoselect(primary_selection_, FALSE);
     g_signal_connect(selection_, "selection-changed",
                      G_CALLBACK(on_multi_selection_changed), this);
     g_signal_connect(primary_selection_, "notify::selected",
                      G_CALLBACK(on_primary_selection_changed), this);
 
-    GtkWidget *list = gtk_column_view_new(GTK_SELECTION_MODEL(selection_));
+    GtkWidget *list = gtk_column_view_new(GTK_SELECTION_MODEL(g_object_ref(selection_)));
     gtk_column_view_set_single_click_activate(GTK_COLUMN_VIEW(list), FALSE);
     gtk_widget_add_css_class(list, "ifm-file-list");
     g_signal_connect(list, "activate", G_CALLBACK(on_list_activate), this);
@@ -348,9 +362,8 @@ void FileManagerWindow::build_ui(GtkApplication *application)
     g_signal_connect(icon_factory, "setup", G_CALLBACK(on_icon_factory_setup), this);
     g_signal_connect(icon_factory, "bind", G_CALLBACK(on_icon_factory_bind), this);
 
-    // GtkColumnView and GtkGridView consume a reference to the selection model. The
-    // detail view owns the original reference; each additional view therefore
-    // receives its own reference while all three represent one selection state.
+    // Each view consumes its own reference. The window retains the original
+    // selection reference so callback teardown never depends on view disposal order.
     GtkWidget *icons = gtk_grid_view_new(
         GTK_SELECTION_MODEL(g_object_ref(selection_)), icon_factory);
     gtk_grid_view_set_single_click_activate(GTK_GRID_VIEW(icons), FALSE);
@@ -469,6 +482,7 @@ void FileManagerWindow::add_sidebar_location(const char *title, const char *icon
     gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), make_sidebar_content(title, icon_name));
     g_object_set_data_full(G_OBJECT(row), "ifm-target", g_strdup(target), g_free);
     gtk_list_box_append(GTK_LIST_BOX(sidebar_), row);
+    ++static_sidebar_row_count_;
 }
 
 void FileManagerWindow::refresh_mounted_places()
@@ -477,7 +491,11 @@ void FileManagerWindow::refresh_mounted_places()
         return;
     }
 
-    const std::vector<MountedPlace> next_places = mounted_places_monitor_->snapshot();
+    apply_mounted_places(mounted_places_monitor_->snapshot());
+}
+
+void FileManagerWindow::apply_mounted_places(const std::vector<MountedPlace> &next_places)
+{
     std::string current_uri;
     if (current_location_ != nullptr) {
         char *uri = g_file_get_uri(current_location_);
@@ -487,15 +505,37 @@ void FileManagerWindow::refresh_mounted_places()
         }
     }
 
-    const bool was_on_mounted_place =
-        location_is_within_mounted_places(current_uri, mounted_places_);
-    const bool remains_on_mounted_place =
-        location_is_within_mounted_places(current_uri, next_places);
+    const MountedPlace *previous_source =
+        most_specific_mounted_place_for_location(current_uri, mounted_places_);
+    std::optional<MountedPlace> previous_source_copy;
+    if (previous_source != nullptr) {
+        previous_source_copy = *previous_source;
+    }
+    const MountedPlace *next_source =
+        most_specific_mounted_place_for_location(current_uri, next_places);
 
+    reconcile_mounted_place_rows(next_places);
+    mounted_places_ = next_places;
+
+    if (current_location_available_) {
+        if (previous_source_copy.has_value() &&
+            (next_source == nullptr ||
+             !mounted_places_have_same_source(*previous_source_copy, *next_source))) {
+            mark_current_location_unavailable(*previous_source_copy);
+        }
+        return;
+    }
+
+    restore_current_location_if_proven(next_source);
+}
+
+void FileManagerWindow::reconcile_mounted_place_rows(const std::vector<MountedPlace> &places)
+{
     for (auto it = mounted_place_rows_.begin(); it != mounted_place_rows_.end();) {
-        const bool still_present = std::any_of(next_places.begin(), next_places.end(),
+        const bool still_present = std::any_of(places.begin(), places.end(),
                                                [&it](const MountedPlace &place) {
-                                                   return place.uri == it->place.uri;
+                                                   return mounted_places_have_same_target(
+                                                       it->place, place);
                                                });
         if (still_present) {
             ++it;
@@ -505,10 +545,10 @@ void FileManagerWindow::refresh_mounted_places()
         it = mounted_place_rows_.erase(it);
     }
 
-    for (const MountedPlace &place : next_places) {
+    for (const MountedPlace &place : places) {
         auto existing = std::find_if(mounted_place_rows_.begin(), mounted_place_rows_.end(),
                                      [&place](const MountedPlaceRow &entry) {
-                                         return entry.place.uri == place.uri;
+                                         return mounted_places_have_same_target(entry.place, place);
                                      });
         if (existing != mounted_place_rows_.end()) {
             if (existing->place.name != place.name ||
@@ -532,19 +572,47 @@ void FileManagerWindow::refresh_mounted_places()
         mounted_place_rows_.push_back(MountedPlaceRow{place, row});
     }
 
-    mounted_places_ = next_places;
-    if (was_on_mounted_place && !remains_on_mounted_place) {
-        mark_current_location_unavailable();
+    std::vector<MountedPlaceRow> ordered_rows;
+    ordered_rows.reserve(places.size());
+    for (const MountedPlace &place : places) {
+        auto existing = std::find_if(mounted_place_rows_.begin(), mounted_place_rows_.end(),
+                                     [&place](const MountedPlaceRow &entry) {
+                                         return mounted_places_have_same_target(entry.place, place);
+                                     });
+        if (existing != mounted_place_rows_.end()) {
+            ordered_rows.push_back(*existing);
+        }
+    }
+    mounted_place_rows_.swap(ordered_rows);
+
+    for (std::size_t index = 0U; index < mounted_place_rows_.size(); ++index) {
+        GtkWidget *row = mounted_place_rows_[index].row;
+        const int expected_index = static_cast<int>(static_sidebar_row_count_ + index);
+        if (gtk_list_box_row_get_index(GTK_LIST_BOX_ROW(row)) == expected_index) {
+            continue;
+        }
+
+        const bool had_focus = gtk_widget_has_focus(row);
+        // Keep a strong reference while reparenting so ordering changes preserve
+        // the GtkListBoxRow identity used by keyboard and assistive-technology state.
+        g_object_ref(row);
+        gtk_list_box_remove(GTK_LIST_BOX(sidebar_), row);
+        gtk_list_box_insert(GTK_LIST_BOX(sidebar_), row, expected_index);
+        if (had_focus) {
+            gtk_widget_grab_focus(row);
+        }
+        g_object_unref(row);
     }
 }
 
-void FileManagerWindow::mark_current_location_unavailable()
+void FileManagerWindow::mark_current_location_unavailable(const MountedPlace &source)
 {
     if (!current_location_available_) {
         return;
     }
 
     current_location_available_ = false;
+    unavailable_mounted_place_ = source;
     if (selection_ != nullptr) {
         gtk_selection_model_unselect_all(GTK_SELECTION_MODEL(selection_));
     }
@@ -556,10 +624,30 @@ void FileManagerWindow::mark_current_location_unavailable()
         gtk_widget_set_visible(spinner_, FALSE);
     }
     if (status_label_ != nullptr) {
-        gtk_label_set_text(GTK_LABEL(status_label_),
-                           "Location unavailable — device was disconnected.");
+        gtk_label_set_text(GTK_LABEL(status_label_), kLocationUnavailableStatus);
     }
     update_navigation_state();
+}
+
+void FileManagerWindow::restore_current_location_if_proven(const MountedPlace *source)
+{
+    if (current_location_available_ || source == nullptr ||
+        !unavailable_mounted_place_.has_value() || current_location_ == nullptr ||
+        directory_list_ == nullptr) {
+        return;
+    }
+    if (!mounted_place_reappearance_is_proven(*unavailable_mounted_place_, *source)) {
+        return;
+    }
+
+    current_location_available_ = true;
+    unavailable_mounted_place_.reset();
+    if (selection_ != nullptr) {
+        gtk_selection_model_unselect_all(GTK_SELECTION_MODEL(selection_));
+    }
+    gtk_directory_list_set_file(directory_list_, current_location_);
+    update_navigation_state();
+    update_status();
 }
 
 void FileManagerWindow::navigate_to(GFile *file, const bool record_history)
@@ -596,6 +684,7 @@ void FileManagerWindow::navigate_to(GFile *file, const bool record_history)
     }
     current_location_ = G_FILE(g_object_ref(file));
     current_location_available_ = true;
+    unavailable_mounted_place_.reset();
 
     gtk_selection_model_unselect_all(GTK_SELECTION_MODEL(selection_));
     gtk_directory_list_set_file(directory_list_, file);
@@ -654,7 +743,8 @@ void FileManagerWindow::activate_position(const guint position)
         char *uri = g_file_get_uri(child);
         if (uri != nullptr) {
             g_app_info_launch_default_for_uri_async(uri, nullptr, nullptr,
-                                                    &FileManagerWindow::on_launch_finished, this);
+                                                    &FileManagerWindow::on_launch_finished,
+                                                    g_object_ref(status_label_));
             g_free(uri);
         }
     }
@@ -708,8 +798,7 @@ void FileManagerWindow::update_status()
     if (!current_location_available_) {
         gtk_spinner_stop(GTK_SPINNER(spinner_));
         gtk_widget_set_visible(spinner_, FALSE);
-        gtk_label_set_text(GTK_LABEL(status_label_),
-                           "Location unavailable — device was disconnected.");
+        gtk_label_set_text(GTK_LABEL(status_label_), kLocationUnavailableStatus);
         return;
     }
 
@@ -741,28 +830,19 @@ void FileManagerWindow::sync_primary_from_multi()
 
     selection_syncing_ = true;
     guint selected_position = GTK_INVALID_LIST_POSITION;
-    guint selected_count = 0U;
+    GtkBitset *selected_items = gtk_selection_model_get_selection(GTK_SELECTION_MODEL(selection_));
     GListModel *presentation_model = gtk_multi_selection_get_model(selection_);
-    const guint count = presentation_model != nullptr
-        ? g_list_model_get_n_items(presentation_model) : 0U;
-    for (guint index = 0U; index < count; ++index) {
-        if (!gtk_selection_model_is_selected(GTK_SELECTION_MODEL(selection_), index)) {
-            continue;
-        }
-        ++selected_count;
-        if (selected_count == 1U) {
-            GFileInfo *selected_info =
-                G_FILE_INFO(g_list_model_get_item(presentation_model, index));
-            selected_position = find_item_position(
-                G_LIST_MODEL(directory_list_), selected_info);
-            if (selected_info != nullptr) {
-                g_object_unref(selected_info);
-            }
-        } else {
-            selected_position = GTK_INVALID_LIST_POSITION;
-            break;
+    if (presentation_model != nullptr && gtk_bitset_get_size(selected_items) == 1U) {
+        const guint index = gtk_bitset_get_minimum(selected_items);
+        GFileInfo *selected_info =
+            G_FILE_INFO(g_list_model_get_item(presentation_model, index));
+        selected_position = find_item_position(
+            G_LIST_MODEL(directory_list_), selected_info);
+        if (selected_info != nullptr) {
+            g_object_unref(selected_info);
         }
     }
+    gtk_bitset_unref(selected_items);
     gtk_single_selection_set_selected(primary_selection_, selected_position);
     selection_syncing_ = false;
 }
@@ -807,12 +887,27 @@ void FileManagerWindow::arm_temporal_policy_monitor()
     }
 
     GFile *policy_directory = g_file_new_for_path(directory);
-    const bool directory_exists = g_file_test(directory, G_FILE_TEST_IS_DIR);
-    temporal_policy_monitoring_parent_ = !directory_exists;
-    GFile *target = directory_exists
-        ? G_FILE(g_object_ref(policy_directory))
-        : g_file_get_parent(policy_directory);
-    g_object_unref(policy_directory);
+    GFile *target = policy_directory;
+    temporal_policy_monitoring_parent_ = false;
+    temporal_policy_watch_name_ = "presentation.conf";
+    // A fresh profile may lack both the XDG config home and its infiltrator
+    // child. Watch the nearest existing ancestor, then move inward as each
+    // missing directory is created; never create preferences just to watch them.
+    while (target != nullptr) {
+        char *path = g_file_get_path(target);
+        const bool exists = path != nullptr && g_file_test(path, G_FILE_TEST_IS_DIR);
+        g_free(path);
+        if (exists) {
+            break;
+        }
+        char *name = g_file_get_basename(target);
+        temporal_policy_watch_name_ = name != nullptr ? name : "";
+        g_free(name);
+        temporal_policy_monitoring_parent_ = true;
+        GFile *parent = g_file_get_parent(target);
+        g_object_unref(target);
+        target = parent;
+    }
     if (target == nullptr) {
         return;
     }
@@ -863,8 +958,8 @@ void FileManagerWindow::on_temporal_policy_changed(GFileMonitor *monitor,
     };
 
     if (self->temporal_policy_monitoring_parent_) {
-        if (!has_basename(file, "infiltrator") &&
-            !has_basename(other_file, "infiltrator")) {
+        if (!has_basename(file, self->temporal_policy_watch_name_.c_str()) &&
+            !has_basename(other_file, self->temporal_policy_watch_name_.c_str())) {
             return;
         }
         self->arm_temporal_policy_monitor();
@@ -1218,14 +1313,17 @@ void FileManagerWindow::on_loading_changed(GObject *object, GParamSpec *pspec, g
 void FileManagerWindow::on_launch_finished(GObject *source, GAsyncResult *result, gpointer user_data)
 {
     (void)source;
-    auto *self = static_cast<FileManagerWindow *>(user_data);
+    auto *status = GTK_LABEL(user_data);
     GError *error = nullptr;
     if (!g_app_info_launch_default_for_uri_finish(result, &error)) {
         if (error != nullptr) {
-            gtk_label_set_text(GTK_LABEL(self->status_label_), error->message);
+            if (gtk_widget_get_root(GTK_WIDGET(status)) != nullptr) {
+                gtk_label_set_text(status, error->message);
+            }
             g_error_free(error);
         }
     }
+    g_object_unref(status);
 }
 
 void FileManagerWindow::on_multi_selection_changed(GtkSelectionModel *model,

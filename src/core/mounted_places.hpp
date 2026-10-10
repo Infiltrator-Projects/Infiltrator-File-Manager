@@ -13,6 +13,9 @@ struct MountedPlace {
     std::string name;
     std::string uri;
     std::string root_uri;
+    // Provider-reported filesystem/mount UUID. Empty means Files has no stable
+    // evidence that a later mount at the same URI is the same underlying source.
+    std::string mount_uuid;
     bool removable{false};
 };
 
@@ -39,8 +42,22 @@ private:
     ChangedCallback changed_;
 };
 
-[[nodiscard]] bool location_is_within_mounted_places(
+// The returned pointer aliases `places` and remains valid only while that vector
+// is unchanged. Nested mounts are resolved to the deepest root containing the location.
+[[nodiscard]] const MountedPlace *most_specific_mounted_place_for_location(
     const std::string &location_uri,
     const std::vector<MountedPlace> &places);
+
+// Continuous observation may fall back to a root URI when a provider exposes no
+// UUID; reappearance after an unavailable interval deliberately requires a UUID.
+[[nodiscard]] bool mounted_places_have_same_source(const MountedPlace &left,
+                                                   const MountedPlace &right);
+// A sidebar row represents a navigation target, not the supplying source alone.
+[[nodiscard]] bool mounted_places_have_same_target(const MountedPlace &left,
+                                                  const MountedPlace &right);
+[[nodiscard]] std::vector<MountedPlace> normalize_mounted_places(
+    std::vector<MountedPlace> places);
+[[nodiscard]] bool mounted_place_reappearance_is_proven(const MountedPlace &previous,
+                                                        const MountedPlace &current);
 
 } // namespace infiltrator::files

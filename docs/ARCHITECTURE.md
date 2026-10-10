@@ -1,6 +1,6 @@
 # Infiltrator File Manager — Initial Architecture
 
-This document defines the initial architectural model derived from the project's design philosophy and October 2026 research review. It is intentionally pre-implementation. Performance measurements, prototypes and further research may change details before code architecture is frozen.
+This document defines the architectural model derived from the project's design philosophy and October 2026 research review. The early C++20/GTK 4 implementation now provides browsing, mounted places, deterministic operation engines and an append-only operation journal. The larger object/capability, retrieval and provider models below remain intended architecture; their presence here does not claim implementation. Performance measurements, prototypes and further research may change details before code architecture is frozen.
 
 ## 1. Architectural boundary
 
@@ -373,14 +373,14 @@ The success path, failure path and recovery path are all part of the feature.
 
 ## 13. Architecture questions deliberately left open
 
-The following must be decided through research/prototyping rather than assumption:
+The initial desktop uses GTK 4/GIO with C++20 Files components and the pinned C Common substrate. The current journal uses escaped tab-separated START/END records; cross-filesystem moves copy, verify and then remove the source. Those choices still need stronger concurrent-writer, crash and namespace-race qualification.
 
-- GTK3, GTK4 or another presentation framework for the initial Linux product;
-- exact C/C++ component boundaries;
+The following remain open and must be decided through research/prototyping rather than assumption:
+
+- further extraction of toolkit-neutral file/object/capability boundaries;
 - exact local semantic embedding/index implementation;
 - whether activity contexts are automatic, explicit or hybrid;
-- the operation-journal persistence format;
-- cross-filesystem move recovery strategy;
+- stronger operation-journal persistence and cross-filesystem move recovery guarantees;
 - remote filesystem abstraction boundaries;
 - plugin/extension model;
 - preview/thumbnail sandboxing; and

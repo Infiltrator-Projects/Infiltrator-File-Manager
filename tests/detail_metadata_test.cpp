@@ -18,6 +18,11 @@ using infiltrator::files::detail_type_text;
 
 int main()
 {
+    const std::string invalid_utf8("%H:%M:%S\xff");
+    if (!detail_locale_time_format_without_seconds(invalid_utf8, "").empty() ||
+        !detail_locale_time_format_without_seconds("%r", invalid_utf8).empty()) {
+        return 18;
+    }
     // Exact civil-time/branch checks must not depend on the runner's timezone.
     g_setenv("TZ", "UTC", TRUE);
     g_setenv("LANGUAGE", "en_AU", TRUE);

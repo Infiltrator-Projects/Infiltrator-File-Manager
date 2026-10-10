@@ -301,11 +301,15 @@ std::string locale_time_text(GDateTime *local, const bool show_seconds)
     // Standard time belongs to the operating-system locale. Use the locale's
     // own POSIX time pattern and remove its seconds field instead of replacing
     // the layout with an application-owned 12/24-hour template.
-    const char *time_format = nl_langinfo(T_FMT);
-    const char *ampm_format = nl_langinfo(T_FMT_AMPM);
+    // langinfo returns the locale's native encoding; GTK format strings and
+    // our Unicode field parser require UTF-8 (not every locale is UTF-8).
+    char *time_format = g_locale_to_utf8(nl_langinfo(T_FMT), -1, nullptr, nullptr, nullptr);
+    char *ampm_format = g_locale_to_utf8(nl_langinfo(T_FMT_AMPM), -1, nullptr, nullptr, nullptr);
     const std::string minute_format = detail_locale_time_format_without_seconds(
         time_format != nullptr ? std::string_view(time_format) : std::string_view(),
         ampm_format != nullptr ? std::string_view(ampm_format) : std::string_view());
+    g_free(time_format);
+    g_free(ampm_format);
     if (minute_format.empty()) {
         return "—";
     }
@@ -378,7 +382,10 @@ std::string detail_locale_time_format_without_seconds(
     std::string_view time_format,
     std::string_view ampm_format)
 {
-    if (time_format.empty()) {
+    if (time_format.empty() ||
+        !g_utf8_validate(time_format.data(), static_cast<gssize>(time_format.size()), nullptr) ||
+        (!ampm_format.empty() &&
+         !g_utf8_validate(ampm_format.data(), static_cast<gssize>(ampm_format.size()), nullptr))) {
         return {};
     }
 

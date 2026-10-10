@@ -71,7 +71,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build pkg-config libgtk-4-dev dpkg-dev curl jq
+            build-essential cmake ninja-build pkg-config libgtk-4-dev dpkg-dev curl jq xvfb xauth dbus-x11
 
       - name: Verify exact current main and release commit
         shell: bash

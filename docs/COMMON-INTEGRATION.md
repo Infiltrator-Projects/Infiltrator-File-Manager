@@ -249,7 +249,7 @@ Status: **REQUIRED FOR FILES-OWNED UTF-8 CONTRACTS**.
 
 Rule: one byte count should not render differently in Files, System Monitor and other Infiltrator applications merely because each application wrote its own unit helper.
 
-Status: **REQUIRED; current 0.1.x code should migrate from GLib size formatting to Common**.
+Status: **ACTIVE**. Detail/List file sizes use Common's canonical disk-capacity formatter; other quantity surfaces should use the same authority when introduced.
 
 ---
 
@@ -408,7 +408,7 @@ Common already carries the shared system-wide temporal presentation authority us
 
 Rule: Files should not invent another clock/calendar configuration system.
 
-Status: **ACTIVE**. One policy snapshot supplies the date and clock for each displayed timestamp. Non-Gregorian dates use Calendar 1.0.85 or newer through Common for matching UI-language presentation; a missing/incompatible provider is shown as unavailable. Gregorian locale presentation stays with the platform adapter. Live policy refresh and raw timestamp sorting share the existing row-formatting seam.
+Status: **ACTIVE**. One policy snapshot supplies the date and clock for each displayed timestamp. Non-Gregorian dates use Calendar 1.0.86 or newer through Common for matching UI-language presentation and native historical year conventions; a missing/incompatible provider is shown as unavailable. Gregorian locale presentation stays with the platform adapter. Live policy refresh and raw timestamp sorting share the existing row-formatting seam. A fresh profile watches the nearest existing configuration ancestor until the shared policy directory appears. Native locale time patterns are converted to UTF-8 before GTK formatting.
 
 ---
 
@@ -545,8 +545,7 @@ Files should already use Common for:
 
 Current 0.1.x gaps to remove:
 
-- GLib `g_format_size()` should not remain the canonical Files size renderer when Common already owns canonical disk-capacity formatting;
-- Files should link the full Common target rather than only Portable on the POSIX desktop build;
+- file-size formatting and the full POSIX Common build target are already active; preserve those choices in new surfaces;
 - Files should add its `InfiltratrProjectInfo` record early so diagnostics/release identity are consistent from the beginning.
 
 ## Tranche B — deterministic operation engine

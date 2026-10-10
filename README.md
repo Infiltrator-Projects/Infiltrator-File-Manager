@@ -2,7 +2,7 @@
 
 Infiltrator File Manager is a clean-sheet file-management project for InfiltratorOS.
 
-**Current source version:** 0.1.15\
+**Current source version:** 0.1.16\
 **Shared foundation:** exact Infiltratr Common 1.19.41 gitlink, linked through the full Common target on InfiltratorOS/POSIX\
 **Desktop implementation:** C++20 + GTK 4/GIO\
 **Status:** early implementation; deterministic browsing and mutation foundation with multi-selection batch transfer, interruption inspection and verified metadata preservation
@@ -54,7 +54,7 @@ Common's role is documented separately in [`docs/COMMON-INTEGRATION.md`](docs/CO
 
 Product-level acceptance is defined in [`docs/PRODUCT-QUALITY.md`](docs/PRODUCT-QUALITY.md). It establishes the golden user journeys, engineering/interaction/aesthetic evidence, proportional-complexity rule and release-quality gate used to decide whether a tranche actually makes Files better for a person.
 
-## Current 0.1.15 implementation
+## Current 0.1.16 implementation
 
 File modification timestamps use one shared temporal policy snapshot for both date and time. Explicit clocks use Common's UI-language-aware renderer: English Chinese-time labels use `Shēn hour` or `Shēn, first half`, Chinese-language labels use native characters, and Roman clocks keep Roman numerals and daylight twelfths with translated wording. Edo clocks use Japanese bell numerals and localized branch wording; explicit 12-hour markers and ordering follow the UI language. Selected non-Gregorian dates use Common's optional bridge to Calendar 1.0.86 or newer for matching UI-language presentation, including native Chinese/Dangi cyclic year names without an added Gregorian year or bare cycle counter; Calendar owns conversion. An unavailable date provider is shown as unavailable rather than silently displaying a Gregorian date. Locale Gregorian dates retain their native platform formatting. Existing live policy monitoring refreshes the visible labels; sorting continues to use raw filesystem timestamps.
 
@@ -63,6 +63,8 @@ The executable is `infiltrator-file-manager`, presented to the user as **Files**
 It currently provides:
 
 - Home, Desktop, Documents, Downloads, Computer and Trash entry points;
+- live mounted local/removable places discovered through GIO, with shadowed implementation mounts excluded and each place opening at GIO's user-facing default location;
+- mounted-place availability tracking that distinguishes the most-specific supplying mount for nested mounts, reports a neutral unavailable state when that source disappears and only auto-restores the current view when GIO provides matching root-and-UUID evidence;
 - Back, Forward and Up navigation;
 - an editable location field accepting paths and URIs;
 - asynchronous, monitored directory enumeration through GTK/GIO;
@@ -115,9 +117,9 @@ It currently provides:
 - monitored refresh and automatic selection of newly created, renamed, copied or moved single items when their result appears in the current view;
 - separate creation, single-item operation, batch operation, destructive/recovery, journal-inspection and theme controllers so interaction policy does not accumulate inside `FileManagerWindow`;
 - the full `InfiltratrCommon::Common` build dependency on InfiltratorOS/POSIX, making Common's POSIX/state/I/O contracts available to the non-UI layers as they are introduced; and
-- a hosted build/test gate on every main-branch update, including batch preflight/policy/progress/cancellation, interrupted-journal recovery and permission/timestamp preservation qualification.
+- a hosted build/test gate on every main-branch update, including headless GTK window lifetime, sorted selection, mount-row identity/focus and fresh-profile policy monitoring, mounted-place identity qualification, batch preflight/policy/progress/cancellation, interrupted-journal recovery and permission/timestamp preservation qualification.
 
-Metadata preservation is deliberately honest in 0.1.15: permissions and modification timestamps are qualified for ordinary copy/cross-volume transfer paths, while ownership, ACLs, extended attributes, sparse-file preservation and symlink metadata remain future capability work. Multi-selection batch Copy/Move is present; destructive batch Trash/Delete is not yet claimed.
+Metadata preservation is deliberately honest in 0.1.16: permissions and modification timestamps are qualified for ordinary copy/cross-volume transfer paths, while ownership, ACLs, extended attributes, sparse-file preservation and symlink metadata remain future capability work. Multi-selection batch Copy/Move is present; destructive batch Trash/Delete is not yet claimed.
 
 The next implementation work continues the richer file/object/capability model and remote-location/provider handling; mounted/removable discovery is already part of the browsing foundation rather than a reason to add ad-hoc controls.
 
@@ -125,7 +127,7 @@ Semantic/context indexing and InfiltratorFS-specific capability providers are al
 
 ## Build
 
-On a Debian-family development system with GTK 4 development files installed:
+On a Debian-family development system with GTK 4 development files installed. Install `xvfb`, `xauth` and `dbus-x11` to run the headless GTK regression test as CI does:
 
 ```bash
 git clone --recurse-submodules https://github.com/Infiltrator-Projects/Infiltrator-File-Manager.git
@@ -136,7 +138,7 @@ ctest --test-dir build --output-on-failure
 ./build/infiltrator-file-manager
 ```
 
-The build rejects a missing, wrong-version or wrong-commit Infiltratr Common checkout. Version 0.1.15 is pinned to Common 1.19.41 at commit `b0387b7ab5d71cda60748e2506b85cdc0e6b5e8b`.
+The build rejects a missing, wrong-version or wrong-commit Infiltratr Common checkout. Version 0.1.16 is pinned to Common 1.19.41 at commit `b0387b7ab5d71cda60748e2506b85cdc0e6b5e8b`.
 
 ## Design documents
 
@@ -177,4 +179,4 @@ The implementation proceeds by proving boundaries rather than accumulating visib
 
 Each tranche must remain useful and testable without making later architectural layers authoritative by accident.
 
-Current browsing foundation also discovers mounted/removable places through GIO and removes their sidebar entries when the platform reports disappearance.
+Current browsing foundation discovers mounted/removable places through GIO, keeps them deterministically ordered, blocks nested-mount fall-through when a supplying mount disappears, and restores an unavailable current view automatically only when the returning mount's root and provider UUID prove the same source.
