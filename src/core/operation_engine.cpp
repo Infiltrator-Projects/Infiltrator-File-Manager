@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "operation_engine.hpp"
+#include "destination_ownership.hpp"
+#include "transfer_operation_engine.hpp"
 
 #include <cstdint>
 #include <string>
@@ -484,7 +486,7 @@ OperationResult OperationEngine::rename_item(const std::filesystem::path &source
                        "An item named " + quoted_name(destination) + " already exists.");
     }
 
-    std::filesystem::rename(source, destination, error);
+    (void)destination_ownership::rename_no_replace(source, destination, error);
     if (error) {
         const OperationStatus status = status_for_error(error);
         std::string message;
@@ -529,86 +531,8 @@ OperationResult OperationEngine::rename_item(const std::filesystem::path &source
 OperationResult OperationEngine::copy_item(const std::filesystem::path &source,
                                             const std::filesystem::path &destination_parent) const
 {
-    std::filesystem::path destination;
-    OperationResult preflight = preflight_source_and_parent(source, destination_parent, destination);
-    if (!preflight.ok()) {
-        return preflight;
-    }
-
-    std::error_code error;
-    const std::filesystem::file_status source_status =
-        std::filesystem::symlink_status(source, error);
-    if (error) {
-        return failure(status_for_error(error),
-                       OperationPhase::Preflight,
-                       destination,
-                       "The selected item could not be inspected.");
-    }
-
-    if (std::filesystem::is_directory(source_status) &&
-        path_is_within(destination_parent, source, error)) {
-        return failure(OperationStatus::InvalidRequest,
-                       OperationPhase::Preflight,
-                       destination,
-                       "A folder cannot be copied into itself or one of its descendants.");
-    }
-    if (error) {
-        return failure(status_for_error(error),
-                       OperationPhase::Preflight,
-                       destination,
-                       "The source and destination could not be resolved safely.");
-    }
-
-    if (std::filesystem::is_symlink(source_status)) {
-        const std::filesystem::path target = std::filesystem::read_symlink(source, error);
-        if (!error) {
-            std::filesystem::create_symlink(target, destination, error);
-        }
-    } else if (std::filesystem::is_regular_file(source_status)) {
-        (void)std::filesystem::copy_file(source, destination,
-                                         std::filesystem::copy_options::none, error);
-    } else if (std::filesystem::is_directory(source_status)) {
-        std::filesystem::copy(source,
-                              destination,
-                              std::filesystem::copy_options::recursive |
-                                  std::filesystem::copy_options::copy_symlinks,
-                              error);
-    } else {
-        return failure(OperationStatus::InvalidRequest,
-                       OperationPhase::Preflight,
-                       destination,
-                       "This item type cannot be copied yet.");
-    }
-
-    if (error) {
-        const OperationStatus status = status_for_error(error);
-        std::error_code cleanup_error;
-        (void)std::filesystem::remove_all(destination, cleanup_error);
-        return copy_failure(status, destination, error, static_cast<bool>(cleanup_error));
-    }
-
-    if (!equivalent_copy_shape(source, destination, error)) {
-        std::error_code cleanup_error;
-        (void)std::filesystem::remove_all(destination, cleanup_error);
-        if (cleanup_error) {
-            return failure(OperationStatus::VerificationFailure,
-                           OperationPhase::Verify,
-                           destination,
-                           "The copy could not be verified and its partial destination could not be removed.",
-                           true);
-        }
-        return failure(OperationStatus::VerificationFailure,
-                       OperationPhase::Verify,
-                       destination,
-                       "The copy could not be verified, so the destination was removed.",
-                       false);
-    }
-
-    return OperationResult{OperationStatus::Success,
-                           OperationPhase::Complete,
-                           destination,
-                           "Copied " + quoted_name(source) + ".",
-                           true};
+    return TransferOperationEngine{}.copy_item(
+        source, destination_parent, ConflictPolicy::Fail, nullptr);
 }
 
 OperationResult OperationEngine::move_item(const std::filesystem::path &source,
@@ -661,7 +585,7 @@ OperationResult OperationEngine::move_item(const std::filesystem::path &source,
                        "The source and destination could not be resolved safely.");
     }
 
-    std::filesystem::rename(source, destination, error);
+    (void)destination_ownership::rename_no_replace(source, destination, error);
     if (!error) {
         const bool destination_now_exists = path_present(destination, error);
         if (error || !destination_now_exists) {
