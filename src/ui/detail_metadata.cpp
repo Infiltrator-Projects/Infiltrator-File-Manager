@@ -7,7 +7,10 @@
 
 #include <cstdint>
 #include <cstring>
+#include <langinfo.h>
 #include <limits>
+#include <string_view>
+#include <vector>
 
 namespace infiltrator::files {
 
@@ -86,6 +89,182 @@ int compare_optional_u64(const bool left_present,
     return 0;
 }
 
+std::string expand_locale_time_composites(std::string_view pattern,
+                                          std::string_view ampm_pattern)
+{
+    std::string expanded(pattern);
+
+    // nl_langinfo() formats may use the POSIX composite forms %T and %r.
+    // Expand those before removing %S so the locale's actual field order and
+    // AM/PM placement remain data rather than an application guess.
+    for (unsigned pass = 0; pass < 3U; ++pass) {
+        std::string next;
+        bool changed = false;
+        next.reserve(expanded.size() + 16U);
+
+        for (std::size_t index = 0; index < expanded.size();) {
+            if (expanded[index] != '%' || index + 1U >= expanded.size()) {
+                next.push_back(expanded[index++]);
+                continue;
+            }
+            if (expanded[index + 1U] == '%') {
+                next.append("%%");
+                index += 2U;
+                continue;
+            }
+
+            std::size_t conversion = index + 1U;
+            if (expanded[conversion] == 'E' || expanded[conversion] == 'O') {
+                ++conversion;
+            }
+            if (conversion >= expanded.size()) {
+                next.append(expanded.substr(index));
+                break;
+            }
+
+            const char specifier = expanded[conversion];
+            const bool has_modifier = conversion != index + 1U;
+            if (!has_modifier && specifier == 'T') {
+                next.append("%H:%M:%S");
+                changed = true;
+            } else if (!has_modifier && specifier == 'r' &&
+                       !ampm_pattern.empty() && ampm_pattern != "%r") {
+                next.append(ampm_pattern);
+                changed = true;
+            } else {
+                next.append(expanded, index, conversion - index + 1U);
+            }
+            index = conversion + 1U;
+        }
+
+        expanded.swap(next);
+        if (!changed) {
+            break;
+        }
+    }
+    return expanded;
+}
+
+struct TimeFormatToken {
+    bool directive = false;
+    char conversion = '\0';
+    std::string text;
+};
+
+void append_literal(std::vector<TimeFormatToken> &tokens,
+                    std::string_view literal)
+{
+    if (literal.empty()) {
+        return;
+    }
+    if (!tokens.empty() && !tokens.back().directive) {
+        tokens.back().text.append(literal);
+        return;
+    }
+    tokens.push_back({false, '\0', std::string(literal)});
+}
+
+std::vector<TimeFormatToken> tokenize_time_format(std::string_view pattern)
+{
+    std::vector<TimeFormatToken> tokens;
+    std::size_t index = 0U;
+
+    while (index < pattern.size()) {
+        if (pattern[index] != '%') {
+            const std::size_t end = pattern.find('%', index);
+            append_literal(tokens, pattern.substr(
+                index, end == std::string_view::npos ? pattern.size() - index
+                                                     : end - index));
+            if (end == std::string_view::npos) {
+                break;
+            }
+            index = end;
+            continue;
+        }
+
+        if (index + 1U >= pattern.size()) {
+            append_literal(tokens, pattern.substr(index));
+            break;
+        }
+        if (pattern[index + 1U] == '%') {
+            append_literal(tokens, "%%");
+            index += 2U;
+            continue;
+        }
+
+        std::size_t conversion = index + 1U;
+        if (pattern[conversion] == 'E' || pattern[conversion] == 'O') {
+            ++conversion;
+        }
+        if (conversion >= pattern.size()) {
+            append_literal(tokens, pattern.substr(index));
+            break;
+        }
+
+        tokens.push_back({true, pattern[conversion],
+                          std::string(pattern.substr(
+                              index, conversion - index + 1U))});
+        index = conversion + 1U;
+    }
+    return tokens;
+}
+
+void trim_trailing_locale_separators(std::string &literal)
+{
+    const char *begin = literal.data();
+    const char *end = begin + literal.size();
+
+    while (end > begin) {
+        const char *previous = g_utf8_find_prev_char(begin, end);
+        if (previous == nullptr) {
+            break;
+        }
+        const gunichar character = g_utf8_get_char(previous);
+        if (g_unichar_isalnum(character)) {
+            break;
+        }
+        end = previous;
+    }
+    literal.resize(static_cast<std::size_t>(end - begin));
+}
+
+bool begins_with_locale_space(std::string_view literal)
+{
+    return !literal.empty() &&
+           g_unichar_isspace(g_utf8_get_char(literal.data()));
+}
+
+bool contains_locale_word(std::string_view literal)
+{
+    const char *cursor = literal.data();
+    const char *end = cursor + literal.size();
+    while (cursor < end) {
+        const gunichar character = g_utf8_get_char(cursor);
+        if (g_unichar_isalnum(character)) {
+            return true;
+        }
+        cursor = g_utf8_next_char(cursor);
+    }
+    return false;
+}
+
+std::string trailing_locale_space(std::string_view literal)
+{
+    const char *begin = literal.data();
+    const char *end = begin + literal.size();
+    const char *cursor = end;
+
+    while (cursor > begin) {
+        const char *previous = g_utf8_find_prev_char(begin, cursor);
+        if (previous == nullptr ||
+            !g_unichar_isspace(g_utf8_get_char(previous))) {
+            break;
+        }
+        cursor = previous;
+    }
+    return std::string(cursor, static_cast<std::size_t>(end - cursor));
+}
+
 std::string locale_time_text(GDateTime *local, const bool show_seconds)
 {
     if (local == nullptr) {
@@ -100,18 +279,19 @@ std::string locale_time_text(GDateTime *local, const bool show_seconds)
         return result;
     }
 
-    // %X owns the locale's 12/24-hour convention, but many locales bake
-    // seconds into it. Infer only that convention, then construct a minute
-    // precision clock so System Settings' show-seconds policy remains binding.
-    char *locale_clock = g_date_time_format(local, "%X");
-    char *meridiem = g_date_time_format(local, "%p");
-    const bool twelve_hour = locale_clock != nullptr && meridiem != nullptr &&
-        meridiem[0] != '\0' && std::strstr(locale_clock, meridiem) != nullptr;
-    g_free(locale_clock);
-    g_free(meridiem);
+    // Standard time belongs to the operating-system locale. Use the locale's
+    // own POSIX time pattern and remove its seconds field instead of replacing
+    // the layout with an application-owned 12/24-hour template.
+    const char *time_format = nl_langinfo(T_FMT);
+    const char *ampm_format = nl_langinfo(T_FMT_AMPM);
+    const std::string minute_format = detail_locale_time_format_without_seconds(
+        time_format != nullptr ? std::string_view(time_format) : std::string_view(),
+        ampm_format != nullptr ? std::string_view(ampm_format) : std::string_view());
+    if (minute_format.empty()) {
+        return "—";
+    }
 
-    char *formatted = g_date_time_format(
-        local, twelve_hour ? "%I:%M %p" : "%H:%M");
+    char *formatted = g_date_time_format(local, minute_format.c_str());
     std::string result = formatted != nullptr && formatted[0] != '\0'
         ? formatted : "—";
     g_free(formatted);
@@ -170,6 +350,55 @@ std::string policy_time_text(GDateTime *local, const guint64 seconds)
 }
 
 } // namespace
+
+std::string detail_locale_time_format_without_seconds(
+    std::string_view time_format,
+    std::string_view ampm_format)
+{
+    if (time_format.empty()) {
+        return {};
+    }
+
+    const std::string expanded =
+        expand_locale_time_composites(time_format, ampm_format);
+    std::vector<TimeFormatToken> tokens = tokenize_time_format(expanded);
+
+    for (std::size_t index = 0U; index < tokens.size(); ++index) {
+        if (!tokens[index].directive || tokens[index].conversion != 'S') {
+            continue;
+        }
+
+        // A punctuation/space separator immediately before seconds belongs to
+        // that field. A localized minute unit (for example 分) is alphanumeric
+        // and therefore remains intact.
+        if (index > 0U && !tokens[index - 1U].directive) {
+            trim_trailing_locale_separators(tokens[index - 1U].text);
+        }
+
+        // Locale patterns may attach a localized unit directly to seconds,
+        // e.g. %H時%M分%S秒. Remove that attached unit too, while preserving
+        // whitespace that separates a following directive such as %p. A word
+        // after whitespace (e.g. a whole-time suffix) is not treated as an
+        // attached seconds unit.
+        if (index + 1U < tokens.size() && !tokens[index + 1U].directive &&
+            !begins_with_locale_space(tokens[index + 1U].text) &&
+            contains_locale_word(tokens[index + 1U].text)) {
+            if (index + 2U < tokens.size()) {
+                tokens[index + 1U].text =
+                    trailing_locale_space(tokens[index + 1U].text);
+            } else {
+                tokens[index + 1U].text.clear();
+            }
+        }
+        tokens[index].text.clear();
+    }
+
+    std::string result;
+    for (const TimeFormatToken &token : tokens) {
+        result.append(token.text);
+    }
+    return result;
+}
 
 std::string detail_type_text(GFileInfo *info)
 {
