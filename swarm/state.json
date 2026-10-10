@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "revision": 17,
+  "revision": 18,
   "mode": "WORK",
-  "updated_at": "2026-10-10T13:34:02.108Z",
+  "updated_at": "2026-10-10T13:39:30.780Z",
   "baseline": {
     "main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
     "version": "0.1.16",
@@ -11,7 +11,7 @@
   },
   "stroke": {
     "id": "files-20261010-destination-ownership",
-    "phase": "FIX_REQUIRED",
+    "phase": "FIXING",
     "package": {
       "title": "Protect destination ownership during transfers and replacement rollback",
       "golden_journeys": [
@@ -46,7 +46,7 @@
       "base_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
       "head_sha": "d6b1ba6224f1b80079a2de497c5f0993a4819447",
       "draft": false,
-      "status": "FIX_REQUIRED: formal exact-head Reviewer COMMENT verdict records five hard findings; six unresolved exact-head threads require correction.",
+      "status": "FIXING: Fixer claimed the complete five-finding formal review set on exact head d6b1ba6.",
       "changed_files": [
         "CMakeLists.txt",
         "README.md",
@@ -144,7 +144,11 @@
     "release": null,
     "blocker": null
   },
-  "lease": null,
+  "lease": {
+    "role": "Fixer",
+    "token": "fixer-destination-ownership-20261010T133930780Z",
+    "expires_at": "2026-10-10T14:24:30.780Z"
+  },
   "heartbeats": {
     "Architect": {
       "at": "2026-10-10T12:55:59.134Z",
@@ -175,18 +179,18 @@
       "next_action": "Builder must finish the complete five-thread hard set on PR #10 and transition to REVIEW_READY; Reviewer must then submit a formal exact-head review before any Integrator action."
     },
     "Fixer": {
-      "at": "2026-10-10T12:36:23.544Z",
-      "status": "BUILDING under live Builder lease; five unresolved candidate-local review threads confirmed read-only",
-      "observed_revision": 10,
-      "observed_head": "b4a48717cdcae598a6dab92ec538700769c774d7",
-      "next_action": "Builder must retain the same PR, reconcile head b4a48717 into state, close the directory-claim, atomic cleanup, Release-effective test, owned-partial rollback and success-identity findings, rerun exact-head CI, then transition to REVIEW_READY."
+      "at": "2026-10-10T13:39:30.780Z",
+      "status": "FIXING claimed for complete five-finding formal review set",
+      "observed_revision": 17,
+      "observed_head": "d6b1ba6224f1b80079a2de497c5f0993a4819447",
+      "next_action": "Correct all five findings on PR #10, add Release-effective race/cancellation tests, resolve six threads, and rerun exact-head CI."
     }
   },
   "last_transition": {
-    "role": "Reviewer",
-    "from": "REVIEWING",
-    "to": "FIX_REQUIRED",
-    "reason": "Formal review 5479122650 on exact head d6b1ba6 found five hard correctness/performance findings across move identity, complete tree verification, cancellation, fsync policy and staged-backup ownership."
+    "role": "Fixer",
+    "from": "FIX_REQUIRED",
+    "to": "FIXING",
+    "reason": "Claimed formal review 5479122650 complete five-finding set on PR #10 exact head d6b1ba6."
   },
   "health": {
     "nonce": "files-swarm-20261010-1136",
