@@ -10,7 +10,7 @@ Newest explicit Shannon directions in issue #2 take precedence. Product authorit
 
 ## One current work record
 
-Fetch `swarm/state.json` using ref `swarm/control`, and obtain its current blob SHA through the GitHub contents API. Never use default-branch content for this record. It names ONE stroke, ONE package and at most ONE production PR with its current head. Issue #2 is the human audit/discussion ledger; old comment wording is history, not a second current candidate.
+Fetch `swarm/state.json` using ref `swarm/control`, and obtain its current blob SHA through the GitHub contents API. Never use default-branch content for this record. It names ONE stroke, ONE package and at most ONE production PR with its current head. Issue #2 is the human audit/discussion ledger; old comment wording is history, not a second current candidate. Read its current body and new/updated directions since your last check. Use bounded recent/since reads when available rather than reloading the entire historical thread on every unchanged wake-up; the current body compiles prior procedural authority.
 
 Use `github.update_file` on branch `swarm/control` with the fetched blob SHA. Increment revision and set updated_at in UTC. Preserve fields owned by other roles. A 409/stale-SHA conflict means refetch, reconcile and retry at most twice; never force an old snapshot over newer state. Confirm the written contents by reading them back.
 
