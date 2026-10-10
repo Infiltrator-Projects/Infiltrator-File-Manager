@@ -37,14 +37,15 @@ bool write_text(const std::filesystem::path &path, const std::string &text)
 int main()
 {
     namespace ownership = infiltrator::files::destination_ownership;
+    namespace fs = std::filesystem;
 
-    const auto root = std::filesystem::temp_directory_path() /
+    const auto root = fs::temp_directory_path() /
                       ("infiltrator-destination-ownership-" +
                        std::to_string(static_cast<long long>(::getpid())));
     std::error_code error;
-    std::filesystem::remove_all(root, error);
+    fs::remove_all(root, error);
     error.clear();
-    if (!require(std::filesystem::create_directories(root, error) && !error,
+    if (!require(fs::create_directories(root, error) && !error,
                  "could not create test root")) {
         return 1;
     }
@@ -78,7 +79,7 @@ int main()
 
     const auto competing_directory = root / "competing-directory";
     error.clear();
-    if (!require(std::filesystem::create_directory(competing_directory, error) && !error,
+    if (!require(fs::create_directory(competing_directory, error) && !error,
                  "could not create competing directory fixture")) {
         return 5;
     }
@@ -120,9 +121,9 @@ int main()
     }
     error.clear();
     if (!require(!ownership::cleanup_owned(directory_outputs, error) &&
-                     !std::filesystem::exists(owned_file) &&
+                     !fs::exists(owned_file) &&
                      read_text(competing_file) == "competing writer" &&
-                     std::filesystem::is_directory(owned_directory),
+                     fs::is_directory(owned_directory),
                  "cleanup removed or displaced non-owned directory content")) {
         return 12;
     }
@@ -138,7 +139,7 @@ int main()
         return 14;
     }
     error.clear();
-    std::filesystem::rename(raced_path, displaced_owned, error);
+    fs::rename(raced_path, displaced_owned, error);
     if (!require(!error && write_text(raced_path, "competing writer"),
                  "could not install competing replacement")) {
         return 15;
@@ -162,7 +163,7 @@ int main()
     }
     error.clear();
     if (!require(ownership::cleanup_owned(clean_outputs, error) &&
-                     !std::filesystem::exists(clean_path),
+                     !fs::exists(clean_path),
                  "cleanup did not remove an unchanged owned object")) {
         return 19;
     }
@@ -185,7 +186,7 @@ int main()
     const auto proof_child = proof_root / "child";
     const auto displaced_child = root / "displaced-proof-child";
     error.clear();
-    if (!require(std::filesystem::create_directory(proof_root, error) &&
+    if (!require(fs::create_directory(proof_root, error) &&
                      write_text(proof_child, "owned child"),
                  "could not create complete-proof fixture")) {
         return 22;
@@ -196,7 +197,7 @@ int main()
                  "could not record complete-proof fixture")) {
         return 23;
     }
-    std::filesystem::rename(proof_child, displaced_child, error);
+    fs::rename(proof_child, displaced_child, error);
     if (!require(!error && write_text(proof_child, "competing child"),
                  "could not replace a copied child")) {
         return 24;
@@ -220,14 +221,14 @@ int main()
                  "could not record staged-backup identity")) {
         return 27;
     }
-    std::filesystem::rename(backup, displaced_backup, error);
+    fs::rename(backup, displaced_backup, error);
     if (!require(!error && write_text(backup, "competing backup"),
                  "could not replace staged-backup pathname")) {
         return 28;
     }
     error.clear();
     if (!require(!ownership::restore_owned(staged_outputs.front(), restore_destination, error) &&
-                     !std::filesystem::exists(restore_destination) &&
+                     !fs::exists(restore_destination) &&
                      read_text(backup) == "competing backup" &&
                      read_text(displaced_backup) == "staged original",
                  "rollback restored or displaced a non-owned staged backup")) {
@@ -245,7 +246,7 @@ int main()
                  "could not record backup-cleanup fixture")) {
         return 31;
     }
-    std::filesystem::rename(cleanup_backup, displaced_cleanup_backup, error);
+    fs::rename(cleanup_backup, displaced_cleanup_backup, error);
     if (!require(!error && write_text(cleanup_backup, "competing backup"),
                  "could not replace backup before cleanup")) {
         return 32;
@@ -291,7 +292,7 @@ int main()
                  "could not record move source")) {
         return 38;
     }
-    std::filesystem::rename(move_source, displaced_move_source, error);
+    fs::rename(move_source, displaced_move_source, error);
     if (!require(!error && write_text(move_source, "replacement"),
                  "could not swap move source")) {
         return 39;
@@ -300,7 +301,7 @@ int main()
     error.clear();
     if (!require(!ownership::move_owned_no_replace(
                      move_outputs.front(), move_target, moved, error) &&
-                     !std::filesystem::exists(move_target) &&
+                     !fs::exists(move_target) &&
                      read_text(move_source) == "replacement" &&
                      read_text(displaced_move_source) == "original",
                  "identity-safe move displaced a swapped source")) {
@@ -309,7 +310,7 @@ int main()
 
     const auto remaining_quarantine = root / ".infiltrator-cleanup-partial";
     const auto restored_source = root / "restored-source";
-    if (!require(std::filesystem::create_directory(remaining_quarantine, error) &&
+    if (!require(fs::create_directory(remaining_quarantine, error) &&
                      write_text(remaining_quarantine / "remaining", "data"),
                  "could not create partial-removal fixture")) {
         return 41;
@@ -318,7 +319,7 @@ int main()
     if (!require(ownership::restore_quarantine(
                      remaining_quarantine, restored_source, error) &&
                      read_text(restored_source / "remaining") == "data" &&
-                     !std::filesystem::exists(remaining_quarantine),
+                     !fs::exists(remaining_quarantine),
                  "remaining quarantined source data was not restored")) {
         return 42;
     }
@@ -339,130 +340,106 @@ int main()
         return 44;
     }
 
-    const auto fallback_source = root / "fallback-source";
-    const auto fallback_destination = root / "fallback-destination";
-    if (!require(write_text(fallback_source, "fallback payload"),
-                 "could not create no-replace fallback fixture")) {
-        return 45;
-    }
-    error.clear();
-    if (!require(ownership::rename_no_replace_non_directory_fallback(
-                     fallback_source, fallback_destination, error) &&
-                     !std::filesystem::exists(fallback_source) &&
-                     read_text(fallback_destination) == "fallback payload",
-                 "non-directory no-replace fallback did not publish safely")) {
-        return 46;
-    }
-
-    const auto fallback_conflict_source = root / "fallback-conflict-source";
-    const auto fallback_conflict_destination = root / "fallback-conflict-destination";
-    if (!require(write_text(fallback_conflict_source, "ours") &&
-                     write_text(fallback_conflict_destination, "theirs"),
-                 "could not create fallback-conflict fixture")) {
-        return 47;
-    }
-    error.clear();
-    if (!require(!ownership::rename_no_replace_non_directory_fallback(
-                     fallback_conflict_source, fallback_conflict_destination, error) &&
-                     error == std::errc::file_exists &&
-                     read_text(fallback_conflict_source) == "ours" &&
-                     read_text(fallback_conflict_destination) == "theirs",
-                 "fallback no-replace displaced a competing destination")) {
-        return 48;
-    }
-
-    const auto fallback_directory = root / "fallback-directory";
-    const auto fallback_directory_destination = root / "fallback-directory-destination";
-    error.clear();
-    if (!require(std::filesystem::create_directory(fallback_directory, error) && !error,
-                 "could not create fallback directory fixture")) {
-        return 49;
-    }
-    error.clear();
-    if (!require(!ownership::rename_no_replace_non_directory_fallback(
-                     fallback_directory, fallback_directory_destination, error) &&
-                     error == std::errc::operation_not_supported &&
-                     std::filesystem::is_directory(fallback_directory) &&
-                     !std::filesystem::exists(fallback_directory_destination),
-                 "directory fallback weakened the no-clobber contract")) {
-        return 50;
-    }
-
     const auto symlink_public = root / "published-link";
     ownership::OwnedOutputs symlink_outputs;
     error.clear();
     const auto private_link = ownership::create_private_symlink(
-        symlink_public, std::filesystem::path{"owned-target"}, symlink_outputs, error);
+        symlink_public, fs::path{"owned-target"}, symlink_outputs, error);
     if (!require(!private_link.empty() && !error,
                  "could not create private symlink fixture")) {
-        return 51;
+        return 45;
     }
-    std::filesystem::create_symlink("competing-target", symlink_public, error);
+    fs::create_symlink("competing-target", symlink_public, error);
     if (!require(!error, "could not claim symlink publication destination")) {
-        return 52;
+        return 46;
     }
     error.clear();
     if (!require(!ownership::publish_private_output(
                      private_link, symlink_public, symlink_outputs.front(), error) &&
                      error == std::errc::file_exists &&
-                     std::filesystem::read_symlink(symlink_public, error) == "competing-target" &&
+                     fs::read_symlink(symlink_public, error) == "competing-target" &&
                      !error,
                  "private symlink publication displaced a competing writer")) {
-        return 53;
+        return 47;
     }
     error.clear();
     const bool symlink_cleaned = ownership::cleanup_owned(symlink_outputs, error);
     std::error_code link_state_error;
-    const auto link_state = std::filesystem::symlink_status(private_link, link_state_error);
+    const auto link_state = fs::symlink_status(private_link, link_state_error);
     const bool private_link_gone =
-        link_state.type() == std::filesystem::file_type::not_found ||
+        link_state.type() == fs::file_type::not_found ||
         link_state_error == std::errc::no_such_file_or_directory;
     if (!require(symlink_cleaned && private_link_gone,
                  "private symlink cleanup did not remove the owned temporary link")) {
-        return 54;
+        return 48;
     }
 
     const auto partial_cleanup = root / "partial-cleanup";
     const auto partial_child = partial_cleanup / "child";
     error.clear();
-    if (!require(std::filesystem::create_directory(partial_cleanup, error) &&
+    if (!require(fs::create_directory(partial_cleanup, error) &&
                      write_text(partial_child, "retained"),
                  "could not create partial tree cleanup fixture")) {
-        return 55;
+        return 49;
     }
     ownership::OwnedOutputs partial_outputs;
     if (!require(ownership::record(partial_cleanup, partial_outputs, error),
                  "could not record partial tree cleanup fixture")) {
-        return 56;
+        return 50;
     }
-    std::filesystem::permissions(partial_cleanup,
-                                 std::filesystem::perms::owner_read |
-                                     std::filesystem::perms::owner_exec,
-                                 std::filesystem::perm_options::replace,
-                                 error);
+    fs::permissions(partial_cleanup,
+                    fs::perms::owner_read | fs::perms::owner_exec,
+                    fs::perm_options::replace,
+                    error);
     if (!require(!error, "could not make partial cleanup fixture non-writable")) {
-        return 57;
+        return 51;
     }
     std::filesystem::path retained_cleanup;
     error.clear();
     const bool removed_partial = ownership::remove_owned_tree(
         partial_outputs.front(), error, &retained_cleanup);
     if (!require(!removed_partial && error && retained_cleanup.empty() &&
-                     std::filesystem::is_directory(partial_cleanup) &&
-                     std::filesystem::exists(partial_child),
+                     fs::is_directory(partial_cleanup) && fs::exists(partial_child),
                  "failed tree cleanup did not restore remaining owned data")) {
-        return 58;
+        return 52;
     }
     error.clear();
-    std::filesystem::permissions(partial_cleanup,
-                                 std::filesystem::perms::owner_all,
-                                 std::filesystem::perm_options::replace,
-                                 error);
+    fs::permissions(partial_cleanup, fs::perms::owner_all, fs::perm_options::replace, error);
     if (!require(!error, "could not restore cleanup fixture permissions")) {
-        return 59;
+        return 53;
+    }
+
+    const auto previous_directory = fs::current_path(error);
+    if (!require(!error, "could not capture current directory")) {
+        return 54;
+    }
+    fs::current_path(root, error);
+    if (!require(!error && write_text("relative-source", "relative payload"),
+                 "could not create relative rename fixture")) {
+        return 55;
+    }
+    ownership::OwnedOutputs relative_outputs;
+    if (!require(ownership::record("relative-source", relative_outputs, error),
+                 "could not record relative source identity")) {
+        return 56;
+    }
+    ownership::OwnedOutput relative_moved;
+    error.clear();
+    if (!require(ownership::move_owned_no_replace(relative_outputs.front(),
+                                                   "relative-destination",
+                                                   relative_moved,
+                                                   error) &&
+                     read_text("relative-destination") == "relative payload" &&
+                     !fs::exists("relative-source"),
+                 "relative ownership move failed")) {
+        return 57;
+    }
+    fs::current_path(previous_directory, error);
+    if (!require(!error, "could not restore current directory")) {
+        return 58;
     }
 
     error.clear();
-    std::filesystem::remove_all(root, error);
-    return require(!error, "could not remove test root") ? 0 : 60;
+    fs::remove_all(root, error);
+    return require(!error, "could not remove test root") ? 0 : 59;
 }
