@@ -20,6 +20,7 @@ int main()
 {
     // Exact civil-time/branch checks must not depend on the runner's timezone.
     g_setenv("TZ", "UTC", TRUE);
+    g_setenv("LANGUAGE", "en_AU", TRUE);
     GFileInfo *directory = g_file_info_new();
     g_file_info_set_file_type(directory, G_FILE_TYPE_DIRECTORY);
     const bool directory_ok = detail_type_text(directory) == "Folder" &&
@@ -217,17 +218,21 @@ int main()
     g_file_info_set_attribute_uint64(file, G_FILE_ATTRIBUTE_TIME_MODIFIED, 1791646200U);
     const bool saved_coarse = infiltratr_temporal_posix_policy_save(&policy) == 0;
     const bool coarse_ok = saved_coarse &&
-        detail_modified_text(file, date_provider) == "中文日期 申時";
+        detail_modified_text(file, date_provider) == "Chinese lunar date Shēn hour";
     policy.show_seconds = true;
     const bool saved_fine = infiltratr_temporal_posix_policy_save(&policy) == 0;
     const bool fine_ok = saved_fine &&
+        detail_modified_text(file, date_provider) == "Chinese lunar date Shēn, first half";
+    g_setenv("LANGUAGE", "zh_TW", TRUE);
+    const bool chinese_language_ok =
         detail_modified_text(file, date_provider) == "中文日期 申初";
+    g_setenv("LANGUAGE", "en_AU", TRUE);
     std::strcpy(policy.calendar, "roman");
     const bool saved_unavailable = infiltratr_temporal_posix_policy_save(&policy) == 0;
     const bool unavailable_ok = saved_unavailable &&
-        detail_modified_text(file, date_provider) == "— 申初";
+        detail_modified_text(file, date_provider) == "— Shēn, first half";
     infiltratr_temporal_posix_date_provider_free(date_provider);
-    if (!coarse_ok || !fine_ok || !unavailable_ok) {
+    if (!coarse_ok || !fine_ok || !chinese_language_ok || !unavailable_ok) {
         g_free(config_home);
         g_object_unref(file);
         return 17;

@@ -343,8 +343,8 @@ std::string policy_time_text(GDateTime *local, const guint64 seconds,
 
     char buffer[128]{};
     std::size_t length = 0U;
-    const bool formatted = infiltratr_temporal_format_clock_mode(
-        policy.clock_mode,
+    const bool formatted = infiltratr_temporal_format_clock_mode_localized(
+        g_get_language_names()[0], policy.clock_mode,
         static_cast<gint64>(seconds * kMicrosecondsPerSecond),
         static_cast<std::int32_t>(offset_seconds),
         policy.show_seconds,

@@ -1,8 +1,8 @@
 # Infiltrator File Manager — Common Integration and Ownership Ledger
 
 **Date:** 6 October 2026\
-**Pinned Common:** 1.19.39\
-**Pinned commit:** `47c7f6fbe3560a7bd4b432c5cef2f7d0ab5cf419`
+**Pinned Common:** 1.19.40\
+**Pinned commit:** `e0cde97b684b6861134be88be5e2126afa11548e`
 
 Common is one of Infiltrator File Manager's principal architectural advantages. Files must not treat Common as a token submodule used only for colours. It is the first place to look whenever Files needs a product-neutral mechanism already proven elsewhere in the Infiltrator family.
 
@@ -47,8 +47,8 @@ Files pins an exact reviewed Common release and commit. It must not silently flo
 Current requirement:
 
 ```text
-Common version: 1.19.39
-Commit:         47c7f6fbe3560a7bd4b432c5cef2f7d0ab5cf419
+Common version: 1.19.40
+Commit:         e0cde97b684b6861134be88be5e2126afa11548e
 ```
 
 A Common update is an explicit Files change with build/test qualification. A same-version but different Common commit must not build in a normal Git checkout.
@@ -408,7 +408,7 @@ Common already carries the shared system-wide temporal presentation authority us
 
 Rule: Files should not invent another clock/calendar configuration system.
 
-Status: **ACTIVE**. One policy snapshot supplies the date and clock for each displayed timestamp. Non-Gregorian dates use Calendar 1.0.84 or newer through Common; a missing/incompatible provider is shown as unavailable. Gregorian locale presentation stays with the platform adapter. Live policy refresh and raw timestamp sorting share the existing row-formatting seam.
+Status: **ACTIVE**. One policy snapshot supplies the date and clock for each displayed timestamp. Non-Gregorian dates use Calendar 1.0.85 or newer through Common for matching UI-language presentation; a missing/incompatible provider is shown as unavailable. Gregorian locale presentation stays with the platform adapter. Live policy refresh and raw timestamp sorting share the existing row-formatting seam.
 
 ---
 
