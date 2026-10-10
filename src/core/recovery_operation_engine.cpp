@@ -91,7 +91,8 @@ std::filesystem::path backup_path_for(const std::filesystem::path &destination,
 bool stage_destination(const std::filesystem::path &destination,
                        const std::filesystem::path &backup,
                        destination_ownership::OwnedOutput &staged,
-                       std::error_code &error)
+                       std::error_code &error,
+                       std::filesystem::path *retained_quarantine = nullptr)
 {
     const destination_ownership::Identity identity =
         destination_ownership::identity_for(destination, error);
@@ -102,7 +103,8 @@ bool stage_destination(const std::filesystem::path &destination,
         destination_ownership::OwnedOutput{destination, identity},
         backup,
         staged,
-        error);
+        error,
+        retained_quarantine);
 }
 
 bool rollback_destination(const std::filesystem::path &destination,
@@ -110,9 +112,13 @@ bool rollback_destination(const std::filesystem::path &destination,
                           std::string &detail)
 {
     std::error_code restore_error;
-    if (!destination_ownership::restore_owned(staged, destination, restore_error)) {
+    std::filesystem::path retained_quarantine;
+    if (!destination_ownership::restore_owned(
+            staged, destination, restore_error, &retained_quarantine)) {
+        const std::filesystem::path retained =
+            retained_quarantine.empty() ? staged.path : retained_quarantine;
         detail = "The previous destination could not be restored safely from “" +
-                 staged.path.string() + "”: " + restore_error.message();
+                 retained.string() + "”: " + restore_error.message();
         return false;
     }
     return true;
@@ -123,12 +129,16 @@ OperationResult cleanup_replaced_destination(const std::filesystem::path &destin
                                              std::string success_message)
 {
     std::error_code cleanup_error;
-    if (!destination_ownership::remove_owned_tree(staged, cleanup_error)) {
+    std::filesystem::path retained_quarantine;
+    if (!destination_ownership::remove_owned_tree(
+            staged, cleanup_error, &retained_quarantine)) {
+        const std::filesystem::path retained =
+            retained_quarantine.empty() ? staged.path : retained_quarantine;
         return result(OperationStatus::VerificationFailure,
                       OperationPhase::Verify,
                       destination,
                       std::move(success_message) +
-                          " The previous destination was retained at “" + staged.path.string() +
+                          " The previous destination was retained at “" + retained.string() +
                           "” because ownership-safe cleanup failed: " + cleanup_error.message(),
                       true);
     }
@@ -177,11 +187,17 @@ OperationResult RecoveryOperationEngine::replace_copy(
     }
 
     destination_ownership::OwnedOutput staged;
-    if (!stage_destination(destination, backup, staged, error)) {
+    std::filesystem::path staging_quarantine;
+    if (!stage_destination(destination, backup, staged, error, &staging_quarantine)) {
         return result(OperationEngine::status_for_error(error),
                       OperationPhase::Execute,
                       destination,
-                      "The existing destination could not be staged safely: " + error.message());
+                      "The existing destination could not be staged safely: " + error.message() +
+                          (staging_quarantine.empty()
+                               ? std::string{}
+                               : " The original destination was retained at “" +
+                                     staging_quarantine.string() + "”."),
+                      !staging_quarantine.empty());
     }
 
     OperationResult replacement = ordinary.copy_item(source, destination_parent);
@@ -238,11 +254,17 @@ OperationResult RecoveryOperationEngine::replace_move(
     }
 
     destination_ownership::OwnedOutput staged;
-    if (!stage_destination(destination, backup, staged, error)) {
+    std::filesystem::path staging_quarantine;
+    if (!stage_destination(destination, backup, staged, error, &staging_quarantine)) {
         return result(OperationEngine::status_for_error(error),
                       OperationPhase::Execute,
                       destination,
-                      "The existing destination could not be staged safely: " + error.message());
+                      "The existing destination could not be staged safely: " + error.message() +
+                          (staging_quarantine.empty()
+                               ? std::string{}
+                               : " The original destination was retained at “" +
+                                     staging_quarantine.string() + "”."),
+                      !staging_quarantine.empty());
     }
 
     OperationResult replacement = ordinary.move_item(source, destination_parent);
@@ -405,13 +427,20 @@ OperationResult RecoveryOperationEngine::restore_item(
                           original_path,
                           "A safe restore replacement staging path could not be reserved.");
         }
-        if (!stage_destination(original_path, backup, staged, error)) {
+        std::filesystem::path staging_quarantine;
+        if (!stage_destination(
+                original_path, backup, staged, error, &staging_quarantine)) {
             g_object_unref(trash_file);
             return result(OperationEngine::status_for_error(error),
                           OperationPhase::Execute,
                           original_path,
                           "The existing item could not be staged safely before restore: " +
-                              error.message());
+                              error.message() +
+                              (staging_quarantine.empty()
+                                   ? std::string{}
+                                   : " The original destination was retained at “" +
+                                         staging_quarantine.string() + "”."),
+                          !staging_quarantine.empty());
         }
     }
 
