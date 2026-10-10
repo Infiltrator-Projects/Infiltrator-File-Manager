@@ -78,6 +78,7 @@ add_executable(infiltrator-file-manager
     src/ui/batch_item_operation_controller.cpp
     src/ui/create_folder_controller.cpp
     src/ui/destructive_operation_controller.cpp
+    src/ui/detail_metadata.cpp
     src/ui/file_manager_window.cpp
     src/ui/item_operation_controller.cpp
     src/ui/journal_recovery_controller.cpp
@@ -99,6 +100,12 @@ if(BUILD_TESTING)
     add_executable(location-model-test tests/location_model_test.cpp)
     target_link_libraries(location-model-test PRIVATE infiltrator-files-core)
     add_test(NAME location-model COMMAND location-model-test)
+
+    add_executable(detail-metadata-test
+        tests/detail_metadata_test.cpp
+        src/ui/detail_metadata.cpp)
+    target_link_libraries(detail-metadata-test PRIVATE infiltrator-files-core)
+    add_test(NAME detail-metadata COMMAND detail-metadata-test)
 
     add_executable(mounted-places-test tests/mounted_places_test.cpp)
     target_link_libraries(mounted-places-test PRIVATE infiltrator-files-core)

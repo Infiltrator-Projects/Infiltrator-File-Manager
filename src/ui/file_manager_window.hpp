@@ -60,7 +60,7 @@ private:
     static void on_up_clicked(GtkButton *button, gpointer user_data);
     static void on_location_activate(GtkEntry *entry, gpointer user_data);
     static void on_sidebar_row_activated(GtkListBox *box, GtkListBoxRow *row, gpointer user_data);
-    static void on_list_activate(GtkListView *view, guint position, gpointer user_data);
+    static void on_list_activate(GtkColumnView *view, guint position, gpointer user_data);
     static void on_grid_activate(GtkGridView *view, guint position, gpointer user_data);
     static void on_view_mode_toggled(GtkToggleButton *button, gpointer user_data);
     static void on_factory_setup(GtkSignalListItemFactory *factory, GtkListItem *item, gpointer user_data);
