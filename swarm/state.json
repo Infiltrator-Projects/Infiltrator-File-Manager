@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "revision": 1,
+  "revision": 2,
   "mode": "VERIFY_HANDOFFS",
-  "updated_at": "2026-10-10T11:44:45.317Z",
+  "updated_at": "2026-10-10T11:46:29.036Z",
   "baseline": {
     "main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
     "version": "0.1.16",
@@ -54,6 +54,13 @@
       "observed_revision": 0,
       "observed_head": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
       "next_action": "Builder must verify Architect comment 6097146411 and append the next ordered receipt."
+    },
+    "Builder": {
+      "at": "2026-10-10T11:46:29.036Z",
+      "status": "startup communication check verified",
+      "observed_revision": 1,
+      "observed_head": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
+      "next_action": "Reviewer must verify Builder comment 6097160209 and append the next ordered receipt."
     }
   },
   "last_transition": {
@@ -80,6 +87,16 @@
         "previous_comment_id": null,
         "comment_id": 6097146411,
         "observed_revision": 0,
+        "observed_main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f"
+      },
+      {
+        "role": "Builder",
+        "nonce": "files-swarm-20261010-1136",
+        "at": "2026-10-10T11:46:29.036Z",
+        "previous_role": "Architect",
+        "previous_comment_id": 6097146411,
+        "comment_id": 6097160209,
+        "observed_revision": 1,
         "observed_main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f"
       }
     ]
