@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "revision": 23,
+  "revision": 24,
   "mode": "WORK",
-  "updated_at": "2026-10-10T14:02:19.099Z",
+  "updated_at": "2026-10-10T14:11:02.888Z",
   "baseline": {
     "main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
     "version": "0.1.16",
@@ -276,11 +276,11 @@
       "next_action": "Fixer must retain PR #10, correct the complete seven-finding hard set, resolve every exact-head thread with evidence, and rerun exact-head Release CI before renewed review/integration."
     },
     "Builder": {
-      "at": "2026-10-10T13:21:52.442Z",
-      "status": "REVIEW_READY; complete PR #10 hard set corrected, all threads resolved, exact-head Release CI green",
-      "observed_revision": 14,
-      "observed_head": "d6b1ba6224f1b80079a2de497c5f0993a4819447",
-      "next_action": "Reviewer must perform a fresh broad independent review of exact head d6b1ba6224f1b80079a2de497c5f0993a4819447 and submit the formal verdict."
+      "at": "2026-10-10T14:11:02.888Z",
+      "status": "Observed FIX_REQUIRED on unchanged PR #10 head with seven newly opened hard findings; Builder recovery not authorized because the Fixer phase is fresh and not abandoned",
+      "observed_revision": 23,
+      "observed_head": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
+      "next_action": "Fixer must retain PR #10, correct the complete seven-finding Integrator/Codex hard set, resolve every exact-head thread with evidence, and rerun exact-head Release CI."
     },
     "Reviewer": {
       "at": "2026-10-10T13:34:02.108Z",
