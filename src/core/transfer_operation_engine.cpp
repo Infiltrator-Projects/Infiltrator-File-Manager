@@ -360,6 +360,7 @@ OperationResult metadata_failure(const std::filesystem::path &destination,
                             : " Non-owned or concurrently changed destination content was retained."),
                    !cleaned);
 }
+
 OperationResult copy_exact(const std::filesystem::path &source,
                            const std::filesystem::path &destination,
                            TransferControl *control,
@@ -395,11 +396,14 @@ OperationResult copy_exact(const std::filesystem::path &source,
 
     if (std::filesystem::is_symlink(source_status)) {
         const auto target = std::filesystem::read_symlink(source, error);
+        std::filesystem::path private_link;
         if (!error) {
-            std::filesystem::create_symlink(target, destination, error);
+            private_link = destination_ownership::create_private_symlink(
+                destination, target, owned, error);
         }
-        if (!error) {
-            (void)destination_ownership::record(destination, owned, error);
+        if (!error && !private_link.empty()) {
+            (void)destination_ownership::publish_private_output(
+                private_link, destination, owned.front(), error);
         }
         if (!error && control != nullptr) {
             control->add_item();
@@ -542,6 +546,19 @@ OperationResult copy_exact(const std::filesystem::path &source,
                            (cleaned
                                 ? " The owned partial destination was removed."
                                 : " Non-owned or concurrently changed destination content was retained."),
+                       !cleaned);
+    }
+
+    if (!equivalent_copy_shape(source, destination, error)) {
+        std::error_code cleanup_error;
+        const bool cleaned = destination_ownership::cleanup_owned(owned, cleanup_error);
+        return failure(OperationStatus::VerificationFailure,
+                       OperationPhase::Verify,
+                       destination,
+                       "The source changed while it was being copied; the copied snapshot was not accepted." +
+                           std::string{cleaned
+                                           ? " The owned partial destination was removed."
+                                           : " Concurrently changed destination content was retained."},
                        !cleaned);
     }
 
@@ -806,8 +823,22 @@ OperationResult TransferOperationEngine::move_item(const std::filesystem::path &
 
     const destination_ownership::OwnedOutput source_output{source, moved_identity};
     destination_ownership::OwnedOutput moved_output;
+    std::filesystem::path retained_source_quarantine;
     if (destination_ownership::move_owned_no_replace(
-            source_output, decision.destination, moved_output, error)) {
+            source_output,
+            decision.destination,
+            moved_output,
+            error,
+            &retained_source_quarantine)) {
+        std::error_code verify_error;
+        if (!destination_ownership::same_object(
+                decision.destination, moved_output.identity, verify_error)) {
+            return failure(OperationStatus::VerificationFailure,
+                           OperationPhase::Verify,
+                           decision.destination,
+                           "The move completed but the destination identity changed before it could be verified.",
+                           true);
+        }
         if (control != nullptr) {
             control->add_bytes(bytes);
             for (std::uintmax_t index = 0; index < items; ++index) {
@@ -825,7 +856,12 @@ OperationResult TransferOperationEngine::move_item(const std::filesystem::path &
         return failure(OperationEngine::status_for_error(error),
                        OperationPhase::Execute,
                        decision.destination,
-                       "The item could not be moved: " + error.message());
+                       "The item could not be moved: " + error.message() +
+                           (retained_source_quarantine.empty()
+                                ? std::string{}
+                                : " The original item was retained safely at “" +
+                                      retained_source_quarantine.string() + "”."),
+                       !retained_source_quarantine.empty());
     }
 
     destination_ownership::OwnedOutputs copied_outputs;
@@ -864,7 +900,7 @@ OperationResult TransferOperationEngine::move_item(const std::filesystem::path &
 
     if (!destination_ownership::verify_all(copied_outputs, error)) {
         std::error_code restore_error;
-        (void)destination_ownership::restore_quarantine(
+        const bool restored = destination_ownership::restore_quarantine(
             source_quarantine, source, restore_error);
         std::error_code cleanup_error;
         const bool cleaned = destination_ownership::cleanup_owned(copied_outputs, cleanup_error);
@@ -873,13 +909,17 @@ OperationResult TransferOperationEngine::move_item(const std::filesystem::path &
                        decision.destination,
                        "The copied destination changed while the source was being committed." +
                            std::string{cleaned ? " The copied destination was removed."
-                                               : " Concurrently changed destination content was retained."},
-                       !cleaned || restore_error);
+                                               : " Concurrently changed destination content was retained."} +
+                           (restored
+                                ? " The source was restored to its original name."
+                                : " The source was retained safely at “" +
+                                      source_quarantine.string() + "”."),
+                       !cleaned || !restored);
     }
 
     if (!equivalent_copy_shape(source_quarantine, decision.destination, error)) {
         std::error_code restore_error;
-        (void)destination_ownership::restore_quarantine(
+        const bool restored = destination_ownership::restore_quarantine(
             source_quarantine, source, restore_error);
         std::error_code cleanup_error;
         const bool cleaned = destination_ownership::cleanup_owned(copied_outputs, cleanup_error);
@@ -888,8 +928,12 @@ OperationResult TransferOperationEngine::move_item(const std::filesystem::path &
                        decision.destination,
                        "The source changed while it was being copied; the move was not committed." +
                            std::string{cleaned ? " The owned copy was removed."
-                                               : " Concurrently changed destination content was retained."},
-                       !cleaned || restore_error);
+                                               : " Concurrently changed destination content was retained."} +
+                           (restored
+                                ? " The source was restored to its original name."
+                                : " The source was retained safely at “" +
+                                      source_quarantine.string() + "”."),
+                       !cleaned || !restored);
     }
 
     std::filesystem::remove_all(source_quarantine, error);
