@@ -1,8 +1,8 @@
 # Infiltrator File Manager — Common Integration and Ownership Ledger
 
-**Date:** 6 October 2026  
-**Pinned Common:** 1.19.38  
-**Pinned commit:** `04b5e219924ec0e65ef9d254c114fad4de0abd29`
+**Date:** 6 October 2026\
+**Pinned Common:** 1.19.41\
+**Pinned commit:** `b0387b7ab5d71cda60748e2506b85cdc0e6b5e8b`
 
 Common is one of Infiltrator File Manager's principal architectural advantages. Files must not treat Common as a token submodule used only for colours. It is the first place to look whenever Files needs a product-neutral mechanism already proven elsewhere in the Infiltrator family.
 
@@ -47,8 +47,8 @@ Files pins an exact reviewed Common release and commit. It must not silently flo
 Current requirement:
 
 ```text
-Common version: 1.19.38
-Commit:         04b5e219924ec0e65ef9d254c114fad4de0abd29
+Common version: 1.19.41
+Commit:         b0387b7ab5d71cda60748e2506b85cdc0e6b5e8b
 ```
 
 A Common update is an explicit Files change with build/test qualification. A same-version but different Common commit must not build in a normal Git checkout.
@@ -249,7 +249,7 @@ Status: **REQUIRED FOR FILES-OWNED UTF-8 CONTRACTS**.
 
 Rule: one byte count should not render differently in Files, System Monitor and other Infiltrator applications merely because each application wrote its own unit helper.
 
-Status: **REQUIRED; current 0.1.x code should migrate from GLib size formatting to Common**.
+Status: **ACTIVE**. Detail/List file sizes use Common's canonical disk-capacity formatter; other quantity surfaces should use the same authority when introduced.
 
 ---
 
@@ -390,7 +390,8 @@ Common already carries the shared system-wide temporal presentation authority us
 - clock/calendar catalogues;
 - seconds policy;
 - location-dependent clock policy;
-- explicit non-standard clock formatting.
+- explicit non-standard clock formatting;
+- optional bounded POSIX date-renderer discovery and validation, delegating chronology to Calendar.
 
 **Files uses it for:**
 
@@ -407,7 +408,7 @@ Common already carries the shared system-wide temporal presentation authority us
 
 Rule: Files should not invent another clock/calendar configuration system.
 
-Status: **PLANNED CORE INTEGRATION**.
+Status: **ACTIVE**. One policy snapshot supplies the date and clock for each displayed timestamp. Non-Gregorian dates use Calendar 1.0.86 or newer through Common for matching UI-language presentation and native historical year conventions; a missing/incompatible provider is shown as unavailable. Gregorian locale presentation stays with the platform adapter. Live policy refresh and raw timestamp sorting share the existing row-formatting seam. A fresh profile watches the nearest existing configuration ancestor until the shared policy directory appears. Native locale time patterns are converted to UTF-8 before GTK formatting.
 
 ---
 
@@ -512,6 +513,7 @@ Status: **AVAILABLE / RARE IN FILES CORE**.
 | File-size quantity formatting | **Authority** | semantic label | — | — |
 | Localisation engine | **Authority** | strings/catalogue | platform locale source | — |
 | System-wide time presentation | **Authority** | file-time composition | OS locale/timezone adapter | — |
+| Selected-calendar date rendering | **discovery/validation** | file-date composition | **Calendar chronology; OS local civil date** | — |
 | Home/XDG/path helpers | **Authority on POSIX mechanics** | state layout | OS provider | — |
 | Files-owned durable state I/O | **generic mechanics** | schema/recovery policy | POSIX provider | — |
 | Generic user-file browsing | — | object/location model | **I/O namespace provider** | provider may expose more |
@@ -543,8 +545,7 @@ Files should already use Common for:
 
 Current 0.1.x gaps to remove:
 
-- GLib `g_format_size()` should not remain the canonical Files size renderer when Common already owns canonical disk-capacity formatting;
-- Files should link the full Common target rather than only Portable on the POSIX desktop build;
+- file-size formatting and the full POSIX Common build target are already active; preserve those choices in new surfaces;
 - Files should add its `InfiltratrProjectInfo` record early so diagnostics/release identity are consistent from the beginning.
 
 ## Tranche B — deterministic operation engine

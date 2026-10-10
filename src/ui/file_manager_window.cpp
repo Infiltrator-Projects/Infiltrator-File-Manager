@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "file_manager_window.hpp"
+#include "detail_metadata.hpp"
 
 #include <infiltratr/design.h>
+#include <infiltratr/temporal_posix.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -14,9 +16,23 @@ namespace {
 
 constexpr const char *kDirectoryAttributes =
     "standard::name,standard::display-name,standard::type,standard::size,"
-    "standard::content-type,standard::icon,standard::is-hidden,time::modified";
+    "standard::content-type,standard::icon,standard::is-hidden,standard::is-symlink,"
+    "time::modified,time::modified-usec,time::modified-nsec";
+
 constexpr const char *kLocationUnavailableStatus =
     "Location unavailable. Reopen the location to retry.";
+
+constexpr int kDetailIconSize = 24;
+constexpr int kDetailTypeWidth = 160;
+constexpr int kDetailSizeWidth = 96;
+constexpr int kDetailModifiedWidth = 190;
+
+enum class DetailField {
+    Name = 1,
+    Type,
+    Size,
+    Modified,
+};
 
 std::string colour_hex(const std::uint32_t rgb)
 {
@@ -44,12 +60,76 @@ GtkWidget *make_sidebar_content(const char *title, const char *icon_name)
     return box;
 }
 
+GtkWidget *make_scroller(GtkWidget *child)
+{
+    GtkWidget *scroll = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll),
+                                   GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), child);
+    return scroll;
+}
+
+int compare_detail_items(gconstpointer left, gconstpointer right, gpointer user_data)
+{
+    auto *left_info = G_FILE_INFO(const_cast<gpointer>(left));
+    auto *right_info = G_FILE_INFO(const_cast<gpointer>(right));
+    const int encoded = GPOINTER_TO_INT(user_data);
+    if (left_info == nullptr || right_info == nullptr ||
+        encoded < static_cast<int>(DetailField::Name) ||
+        encoded > static_cast<int>(DetailField::Modified)) {
+        return 0;
+    }
+
+    switch (static_cast<DetailField>(encoded)) {
+    case DetailField::Name:
+        return detail_compare_name(left_info, right_info);
+    case DetailField::Type:
+        return detail_compare_type(left_info, right_info);
+    case DetailField::Size:
+        return detail_compare_size(left_info, right_info);
+    case DetailField::Modified:
+        return detail_compare_modified(left_info, right_info);
+    }
+    return 0;
+}
+
+bool same_directory_item(GFileInfo *left, GFileInfo *right)
+{
+    if (left == right) {
+        return true;
+    }
+    if (left == nullptr || right == nullptr) {
+        return false;
+    }
+    return g_strcmp0(g_file_info_get_name(left), g_file_info_get_name(right)) == 0;
+}
+
+guint find_item_position(GListModel *model, GFileInfo *needle)
+{
+    if (model == nullptr || needle == nullptr) {
+        return GTK_INVALID_LIST_POSITION;
+    }
+    const guint count = g_list_model_get_n_items(model);
+    for (guint index = 0U; index < count; ++index) {
+        GFileInfo *candidate = G_FILE_INFO(g_list_model_get_item(model, index));
+        const bool match = same_directory_item(candidate, needle);
+        if (candidate != nullptr) {
+            g_object_unref(candidate);
+        }
+        if (match) {
+            return index;
+        }
+    }
+    return GTK_INVALID_LIST_POSITION;
+}
+
 } // namespace
 
 FileManagerWindow::FileManagerWindow(GtkApplication *application)
 {
     build_ui(application);
     apply_theme();
+    arm_temporal_policy_monitor();
 
     g_object_weak_ref(G_OBJECT(window_), &FileManagerWindow::on_window_finalized, this);
 
@@ -60,13 +140,33 @@ FileManagerWindow::FileManagerWindow(GtkApplication *application)
 
 FileManagerWindow::~FileManagerWindow()
 {
-    // Stop mount callbacks before any UI/model references owned by this object are released.
+    // Stop external callbacks before any UI/model references owned by this object are released.
     mounted_places_monitor_.reset();
+    if (temporal_policy_monitor_ != nullptr) {
+        g_signal_handlers_disconnect_by_data(temporal_policy_monitor_, this);
+        g_object_unref(temporal_policy_monitor_);
+        temporal_policy_monitor_ = nullptr;
+    }
+    for (GtkWidget *cell : modified_cells_) {
+        g_object_weak_unref(
+            G_OBJECT(cell), &FileManagerWindow::on_modified_cell_finalized, this);
+    }
+    modified_cells_.clear();
 
+    // Model callbacks capture this object. Own each model until all callbacks
+    // are disconnected, even if GTK disposes the views before the window.
+    for (GObject *model : {G_OBJECT(directory_list_), G_OBJECT(selection_),
+                          G_OBJECT(primary_selection_)}) {
+        if (model != nullptr) {
+            g_signal_handlers_disconnect_by_data(model, this);
+        }
+    }
     if (primary_selection_ != nullptr) {
         g_object_unref(primary_selection_);
         primary_selection_ = nullptr;
     }
+    g_clear_object(&selection_);
+    g_clear_object(&directory_list_);
     if (current_location_ != nullptr) {
         g_object_unref(current_location_);
         current_location_ = nullptr;
@@ -107,9 +207,40 @@ void FileManagerWindow::build_ui(GtkApplication *application)
 
     location_entry_ = gtk_entry_new();
     gtk_widget_set_hexpand(location_entry_, TRUE);
-    gtk_widget_set_size_request(location_entry_, 430, -1);
+    // Keep the path useful at normal widths without forcing the whole window to
+    // remain wider than compact/split-screen layouts can provide.
+    gtk_widget_set_size_request(location_entry_, 180, -1);
     gtk_entry_set_placeholder_text(GTK_ENTRY(location_entry_), "Location");
     gtk_header_bar_set_title_widget(GTK_HEADER_BAR(header), location_entry_);
+
+    GtkWidget *view_switcher = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_widget_add_css_class(view_switcher, "linked");
+    gtk_widget_add_css_class(view_switcher, "ifm-view-switcher");
+
+    list_view_button_ = gtk_toggle_button_new_with_label("List");
+    icon_view_button_ = gtk_toggle_button_new_with_label("Icons");
+    compact_view_button_ = gtk_toggle_button_new_with_label("Compact");
+    gtk_widget_set_tooltip_text(list_view_button_, "Detail / list view");
+    gtk_widget_set_tooltip_text(icon_view_button_, "Visual / icon view");
+    gtk_widget_set_tooltip_text(compact_view_button_, "Compact dense-scan view");
+
+    gtk_toggle_button_set_group(GTK_TOGGLE_BUTTON(icon_view_button_),
+                                GTK_TOGGLE_BUTTON(list_view_button_));
+    gtk_toggle_button_set_group(GTK_TOGGLE_BUTTON(compact_view_button_),
+                                GTK_TOGGLE_BUTTON(list_view_button_));
+
+    g_object_set_data(G_OBJECT(list_view_button_), "ifm-view-mode", GINT_TO_POINTER(1));
+    g_object_set_data(G_OBJECT(icon_view_button_), "ifm-view-mode", GINT_TO_POINTER(2));
+    g_object_set_data(G_OBJECT(compact_view_button_), "ifm-view-mode", GINT_TO_POINTER(3));
+
+    g_signal_connect(list_view_button_, "toggled", G_CALLBACK(on_view_mode_toggled), this);
+    g_signal_connect(icon_view_button_, "toggled", G_CALLBACK(on_view_mode_toggled), this);
+    g_signal_connect(compact_view_button_, "toggled", G_CALLBACK(on_view_mode_toggled), this);
+
+    gtk_box_append(GTK_BOX(view_switcher), list_view_button_);
+    gtk_box_append(GTK_BOX(view_switcher), icon_view_button_);
+    gtk_box_append(GTK_BOX(view_switcher), compact_view_button_);
+    gtk_header_bar_pack_end(GTK_HEADER_BAR(header), view_switcher);
 
     g_signal_connect(back_button_, "clicked", G_CALLBACK(on_back_clicked), this);
     g_signal_connect(forward_button_, "clicked", G_CALLBACK(on_forward_clicked), this);
@@ -160,30 +291,108 @@ void FileManagerWindow::build_ui(GtkApplication *application)
     g_signal_connect(directory_list_, "notify::loading", G_CALLBACK(on_loading_changed), this);
     g_signal_connect(directory_list_, "notify::error", G_CALLBACK(on_loading_changed), this);
 
-    selection_ = gtk_multi_selection_new(G_LIST_MODEL(directory_list_));
-    primary_selection_ = gtk_single_selection_new(G_LIST_MODEL(directory_list_));
+    GtkSortListModel *sort_model =
+        gtk_sort_list_model_new(G_LIST_MODEL(g_object_ref(directory_list_)), nullptr);
+    gtk_sort_list_model_set_incremental(sort_model, TRUE);
+    // gtk_multi_selection_new() takes ownership of the sort-model reference.
+    selection_ = gtk_multi_selection_new(G_LIST_MODEL(sort_model));
+
+    // Single-item operation controllers still use the authoritative directory
+    // model directly. Selection synchronization maps by GFileInfo identity/name
+    // so presentation sorting can never redirect an operation to another item.
+    primary_selection_ = gtk_single_selection_new(G_LIST_MODEL(g_object_ref(directory_list_)));
     gtk_single_selection_set_autoselect(primary_selection_, FALSE);
     g_signal_connect(selection_, "selection-changed",
                      G_CALLBACK(on_multi_selection_changed), this);
     g_signal_connect(primary_selection_, "notify::selected",
                      G_CALLBACK(on_primary_selection_changed), this);
 
-    GtkListItemFactory *factory = gtk_signal_list_item_factory_new();
-    g_signal_connect(factory, "setup", G_CALLBACK(on_factory_setup), this);
-    g_signal_connect(factory, "bind", G_CALLBACK(on_factory_bind), this);
-
-    GtkWidget *list = gtk_list_view_new(GTK_SELECTION_MODEL(selection_), factory);
-    gtk_list_view_set_single_click_activate(GTK_LIST_VIEW(list), FALSE);
+    GtkWidget *list = gtk_column_view_new(GTK_SELECTION_MODEL(g_object_ref(selection_)));
+    gtk_column_view_set_single_click_activate(GTK_COLUMN_VIEW(list), FALSE);
     gtk_widget_add_css_class(list, "ifm-file-list");
     g_signal_connect(list, "activate", G_CALLBACK(on_list_activate), this);
 
-    GtkWidget *content_scroll = gtk_scrolled_window_new();
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(content_scroll),
-                                   GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
-    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(content_scroll), list);
-    gtk_paned_set_end_child(GTK_PANED(paned), content_scroll);
+    const auto append_detail_column = [this, list](const char *title,
+                                                    const DetailField field,
+                                                    const int fixed_width,
+                                                    const bool expand) {
+        GtkListItemFactory *factory = gtk_signal_list_item_factory_new();
+        g_object_set_data(G_OBJECT(factory), "ifm-detail-field",
+                          GINT_TO_POINTER(static_cast<int>(field)));
+        g_signal_connect(factory, "setup", G_CALLBACK(on_factory_setup), this);
+        g_signal_connect(factory, "bind", G_CALLBACK(on_factory_bind), this);
+        g_signal_connect(factory, "unbind", G_CALLBACK(on_factory_unbind), this);
+
+        GtkColumnViewColumn *column = gtk_column_view_column_new(title, factory);
+        gtk_column_view_column_set_expand(column, expand);
+        gtk_column_view_column_set_resizable(column, FALSE);
+        if (fixed_width > 0) {
+            gtk_column_view_column_set_fixed_width(column, fixed_width);
+        }
+
+        GtkSorter *sorter = GTK_SORTER(gtk_custom_sorter_new(
+            compare_detail_items,
+            GINT_TO_POINTER(static_cast<int>(field)),
+            nullptr));
+        gtk_column_view_column_set_sorter(column, sorter);
+        g_object_unref(sorter);
+
+        gtk_column_view_append_column(GTK_COLUMN_VIEW(list), column);
+        g_object_unref(column);
+    };
+
+    append_detail_column("Name", DetailField::Name, 0, true);
+    append_detail_column("Type", DetailField::Type, kDetailTypeWidth, false);
+    append_detail_column("Size", DetailField::Size, kDetailSizeWidth, false);
+    append_detail_column("Date Modified", DetailField::Modified, kDetailModifiedWidth, false);
+
+    // GtkColumnView owns the active column/direction state in its aggregate
+    // sorter. Feeding that sorter into the shared presentation model makes a
+    // header click reorder List, Visual and Compact consistently.
+    GListModel *presentation_model = gtk_multi_selection_get_model(selection_);
+    if (GTK_IS_SORT_LIST_MODEL(presentation_model)) {
+        gtk_sort_list_model_set_sorter(
+            GTK_SORT_LIST_MODEL(presentation_model),
+            gtk_column_view_get_sorter(GTK_COLUMN_VIEW(list)));
+    }
+
+    GtkListItemFactory *icon_factory = gtk_signal_list_item_factory_new();
+    g_object_set_data(G_OBJECT(icon_factory), "ifm-icon-size", GINT_TO_POINTER(64));
+    g_object_set_data(G_OBJECT(icon_factory), "ifm-tile-width", GINT_TO_POINTER(132));
+    g_signal_connect(icon_factory, "setup", G_CALLBACK(on_icon_factory_setup), this);
+    g_signal_connect(icon_factory, "bind", G_CALLBACK(on_icon_factory_bind), this);
+
+    // Each view consumes its own reference. The window retains the original
+    // selection reference so callback teardown never depends on view disposal order.
+    GtkWidget *icons = gtk_grid_view_new(
+        GTK_SELECTION_MODEL(g_object_ref(selection_)), icon_factory);
+    gtk_grid_view_set_single_click_activate(GTK_GRID_VIEW(icons), FALSE);
+    gtk_grid_view_set_max_columns(GTK_GRID_VIEW(icons), 64U);
+    gtk_widget_add_css_class(icons, "ifm-icon-grid");
+    g_signal_connect(icons, "activate", G_CALLBACK(on_grid_activate), this);
+
+    GtkListItemFactory *compact_factory = gtk_signal_list_item_factory_new();
+    g_signal_connect(compact_factory, "setup", G_CALLBACK(on_compact_factory_setup), this);
+    g_signal_connect(compact_factory, "bind", G_CALLBACK(on_icon_factory_bind), this);
+
+    GtkWidget *compact = gtk_grid_view_new(
+        GTK_SELECTION_MODEL(g_object_ref(selection_)), compact_factory);
+    gtk_grid_view_set_single_click_activate(GTK_GRID_VIEW(compact), FALSE);
+    gtk_grid_view_set_max_columns(GTK_GRID_VIEW(compact), 64U);
+    gtk_widget_add_css_class(compact, "ifm-icon-grid");
+    gtk_widget_add_css_class(compact, "ifm-compact-grid");
+    g_signal_connect(compact, "activate", G_CALLBACK(on_grid_activate), this);
+
+    content_stack_ = gtk_stack_new();
+    gtk_stack_set_transition_type(GTK_STACK(content_stack_), GTK_STACK_TRANSITION_TYPE_NONE);
+    gtk_stack_add_named(GTK_STACK(content_stack_), make_scroller(list), "list");
+    gtk_stack_add_named(GTK_STACK(content_stack_), make_scroller(icons), "icons");
+    gtk_stack_add_named(GTK_STACK(content_stack_), make_scroller(compact), "compact");
+    gtk_paned_set_end_child(GTK_PANED(paned), content_stack_);
     gtk_paned_set_resize_end_child(GTK_PANED(paned), TRUE);
     gtk_paned_set_shrink_end_child(GTK_PANED(paned), FALSE);
+
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(list_view_button_), TRUE);
 
     GtkWidget *status = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
     gtk_widget_set_margin_start(status, 12);
@@ -230,13 +439,23 @@ void FileManagerWindow::apply_theme()
         << "; border-right: 1px solid " << colour_hex(palette->border_rgb) << "; }\n"
         << ".ifm-sidebar row { margin: 2px 6px; border-radius: " << metrics->control_radius << "px; }\n"
         << ".ifm-sidebar row:hover { background: " << colour_hex(palette->surface_hover_rgb) << "; }\n"
-        << ".ifm-file-list { background: " << colour_hex(palette->background_rgb) << "; }\n"
-        << ".ifm-file-list row { margin: 2px 8px; border-radius: " << metrics->control_radius << "px; }\n"
+        << ".ifm-file-list, .ifm-icon-grid { background: " << colour_hex(palette->background_rgb) << "; }\n"
+        << ".ifm-file-list row { border-radius: " << metrics->control_radius << "px; }\n"
         << ".ifm-file-list row:hover { background: " << colour_hex(palette->surface_hover_rgb) << "; }\n"
         << ".ifm-file-list row:selected { background: " << colour_hex(palette->selection_background_rgb)
         << "; color: " << colour_hex(palette->selection_foreground_rgb) << "; }\n"
+        << ".ifm-file-list header, .ifm-file-list header button { background: "
+        << colour_hex(palette->panel_rgb) << "; color: " << colour_hex(palette->muted_rgb)
+        << "; border-color: " << colour_hex(palette->border_rgb) << "; }\n"
+        << ".ifm-icon-tile { margin: 4px; padding: 8px 6px; border-radius: "
+        << metrics->control_radius << "px; }\n"
+        << ".ifm-icon-tile:hover { background: " << colour_hex(palette->surface_hover_rgb) << "; }\n"
+        << ".ifm-compact-tile { margin: 2px; padding: 5px 8px; }\n"
         << ".ifm-file-name { color: " << colour_hex(palette->text_rgb) << "; }\n"
-        << ".ifm-file-meta { color: " << colour_hex(palette->muted_rgb) << "; font-size: 0.88em; }\n"
+        << ".ifm-detail-secondary { color: " << colour_hex(palette->muted_rgb) << "; }\n"
+        << ".ifm-file-list row:selected .ifm-file-name, "
+        << ".ifm-file-list row:selected .ifm-detail-secondary { color: "
+        << colour_hex(palette->selection_foreground_rgb) << "; }\n"
         << ".ifm-status { background: " << colour_hex(palette->panel_rgb)
         << "; color: " << colour_hex(palette->muted_rgb)
         << "; border-top: 1px solid " << colour_hex(palette->border_rgb) << "; }\n"
@@ -272,7 +491,11 @@ void FileManagerWindow::refresh_mounted_places()
         return;
     }
 
-    const std::vector<MountedPlace> next_places = mounted_places_monitor_->snapshot();
+    apply_mounted_places(mounted_places_monitor_->snapshot());
+}
+
+void FileManagerWindow::apply_mounted_places(const std::vector<MountedPlace> &next_places)
+{
     std::string current_uri;
     if (current_location_ != nullptr) {
         char *uri = g_file_get_uri(current_location_);
@@ -311,7 +534,7 @@ void FileManagerWindow::reconcile_mounted_place_rows(const std::vector<MountedPl
     for (auto it = mounted_place_rows_.begin(); it != mounted_place_rows_.end();) {
         const bool still_present = std::any_of(places.begin(), places.end(),
                                                [&it](const MountedPlace &place) {
-                                                   return mounted_places_have_same_source(
+                                                   return mounted_places_have_same_target(
                                                        it->place, place);
                                                });
         if (still_present) {
@@ -325,7 +548,7 @@ void FileManagerWindow::reconcile_mounted_place_rows(const std::vector<MountedPl
     for (const MountedPlace &place : places) {
         auto existing = std::find_if(mounted_place_rows_.begin(), mounted_place_rows_.end(),
                                      [&place](const MountedPlaceRow &entry) {
-                                         return mounted_places_have_same_source(entry.place, place);
+                                         return mounted_places_have_same_target(entry.place, place);
                                      });
         if (existing != mounted_place_rows_.end()) {
             if (existing->place.name != place.name ||
@@ -334,10 +557,6 @@ void FileManagerWindow::reconcile_mounted_place_rows(const std::vector<MountedPl
                                                         : "drive-harddisk-symbolic";
                 gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(existing->row),
                                            make_sidebar_content(place.name.c_str(), icon_name));
-            }
-            if (existing->place.uri != place.uri) {
-                g_object_set_data_full(G_OBJECT(existing->row), "ifm-target",
-                                       g_strdup(place.uri.c_str()), g_free);
             }
             existing->place = place;
             continue;
@@ -358,7 +577,7 @@ void FileManagerWindow::reconcile_mounted_place_rows(const std::vector<MountedPl
     for (const MountedPlace &place : places) {
         auto existing = std::find_if(mounted_place_rows_.begin(), mounted_place_rows_.end(),
                                      [&place](const MountedPlaceRow &entry) {
-                                         return mounted_places_have_same_source(entry.place, place);
+                                         return mounted_places_have_same_target(entry.place, place);
                                      });
         if (existing != mounted_place_rows_.end()) {
             ordered_rows.push_back(*existing);
@@ -498,6 +717,62 @@ void FileManagerWindow::navigate_history(const std::ptrdiff_t delta)
     g_object_unref(file);
 }
 
+void FileManagerWindow::activate_position(const guint position)
+{
+    if (current_location_ == nullptr || selection_ == nullptr) {
+        return;
+    }
+
+    GListModel *model = gtk_multi_selection_get_model(selection_);
+    GFileInfo *info = model != nullptr
+        ? G_FILE_INFO(g_list_model_get_item(model, position)) : nullptr;
+    if (info == nullptr) {
+        return;
+    }
+
+    const char *name = g_file_info_get_name(info);
+    if (name == nullptr) {
+        g_object_unref(info);
+        return;
+    }
+
+    GFile *child = g_file_get_child(current_location_, name);
+    if (g_file_info_get_file_type(info) == G_FILE_TYPE_DIRECTORY) {
+        navigate_to(child, true);
+    } else {
+        char *uri = g_file_get_uri(child);
+        if (uri != nullptr) {
+            g_app_info_launch_default_for_uri_async(uri, nullptr, nullptr,
+                                                    &FileManagerWindow::on_launch_finished,
+                                                    g_object_ref(status_label_));
+            g_free(uri);
+        }
+    }
+
+    g_object_unref(child);
+    g_object_unref(info);
+}
+
+void FileManagerWindow::set_view_mode(const ViewMode mode)
+{
+    if (content_stack_ == nullptr) {
+        return;
+    }
+
+    view_mode_ = mode;
+    switch (mode) {
+    case ViewMode::List:
+        gtk_stack_set_visible_child_name(GTK_STACK(content_stack_), "list");
+        break;
+    case ViewMode::Icons:
+        gtk_stack_set_visible_child_name(GTK_STACK(content_stack_), "icons");
+        break;
+    case ViewMode::Compact:
+        gtk_stack_set_visible_child_name(GTK_STACK(content_stack_), "compact");
+        break;
+    }
+}
+
 void FileManagerWindow::update_navigation_state()
 {
     gtk_widget_set_sensitive(back_button_, !history_.empty() && history_index_ > 0U);
@@ -554,22 +829,21 @@ void FileManagerWindow::sync_primary_from_multi()
     }
 
     selection_syncing_ = true;
-    guint selected_index = GTK_INVALID_LIST_POSITION;
-    guint selected_count = 0U;
-    const guint count = g_list_model_get_n_items(G_LIST_MODEL(directory_list_));
-    for (guint index = 0U; index < count; ++index) {
-        if (!gtk_selection_model_is_selected(GTK_SELECTION_MODEL(selection_), index)) {
-            continue;
-        }
-        ++selected_count;
-        if (selected_count == 1U) {
-            selected_index = index;
-        } else {
-            selected_index = GTK_INVALID_LIST_POSITION;
-            break;
+    guint selected_position = GTK_INVALID_LIST_POSITION;
+    GtkBitset *selected_items = gtk_selection_model_get_selection(GTK_SELECTION_MODEL(selection_));
+    GListModel *presentation_model = gtk_multi_selection_get_model(selection_);
+    if (presentation_model != nullptr && gtk_bitset_get_size(selected_items) == 1U) {
+        const guint index = gtk_bitset_get_minimum(selected_items);
+        GFileInfo *selected_info =
+            G_FILE_INFO(g_list_model_get_item(presentation_model, index));
+        selected_position = find_item_position(
+            G_LIST_MODEL(directory_list_), selected_info);
+        if (selected_info != nullptr) {
+            g_object_unref(selected_info);
         }
     }
-    gtk_single_selection_set_selected(primary_selection_, selected_index);
+    gtk_bitset_unref(selected_items);
+    gtk_single_selection_set_selected(primary_selection_, selected_position);
     selection_syncing_ = false;
 }
 
@@ -583,9 +857,127 @@ void FileManagerWindow::sync_multi_from_primary()
     gtk_selection_model_unselect_all(GTK_SELECTION_MODEL(selection_));
     const guint selected = gtk_single_selection_get_selected(primary_selection_);
     if (selected != GTK_INVALID_LIST_POSITION) {
-        gtk_selection_model_select_item(GTK_SELECTION_MODEL(selection_), selected, TRUE);
+        GFileInfo *selected_info = G_FILE_INFO(
+            g_list_model_get_item(G_LIST_MODEL(directory_list_), selected));
+        GListModel *presentation_model = gtk_multi_selection_get_model(selection_);
+        const guint presentation_position =
+            find_item_position(presentation_model, selected_info);
+        if (selected_info != nullptr) {
+            g_object_unref(selected_info);
+        }
+        if (presentation_position != GTK_INVALID_LIST_POSITION) {
+            gtk_selection_model_select_item(GTK_SELECTION_MODEL(selection_),
+                                            presentation_position, TRUE);
+        }
     }
     selection_syncing_ = false;
+}
+
+void FileManagerWindow::arm_temporal_policy_monitor()
+{
+    if (temporal_policy_monitor_ != nullptr) {
+        g_signal_handlers_disconnect_by_data(temporal_policy_monitor_, this);
+        g_object_unref(temporal_policy_monitor_);
+        temporal_policy_monitor_ = nullptr;
+    }
+
+    char directory[4096]{};
+    if (!infiltratr_temporal_posix_policy_directory(directory, sizeof(directory))) {
+        return;
+    }
+
+    GFile *policy_directory = g_file_new_for_path(directory);
+    GFile *target = policy_directory;
+    temporal_policy_monitoring_parent_ = false;
+    temporal_policy_watch_name_ = "presentation.conf";
+    // A fresh profile may lack both the XDG config home and its infiltrator
+    // child. Watch the nearest existing ancestor, then move inward as each
+    // missing directory is created; never create preferences just to watch them.
+    while (target != nullptr) {
+        char *path = g_file_get_path(target);
+        const bool exists = path != nullptr && g_file_test(path, G_FILE_TEST_IS_DIR);
+        g_free(path);
+        if (exists) {
+            break;
+        }
+        char *name = g_file_get_basename(target);
+        temporal_policy_watch_name_ = name != nullptr ? name : "";
+        g_free(name);
+        temporal_policy_monitoring_parent_ = true;
+        GFile *parent = g_file_get_parent(target);
+        g_object_unref(target);
+        target = parent;
+    }
+    if (target == nullptr) {
+        return;
+    }
+
+    GError *error = nullptr;
+    temporal_policy_monitor_ = g_file_monitor_directory(
+        target, G_FILE_MONITOR_WATCH_MOVES, nullptr, &error);
+    g_object_unref(target);
+    if (error != nullptr) {
+        g_error_free(error);
+    }
+    if (temporal_policy_monitor_ != nullptr) {
+        g_signal_connect(temporal_policy_monitor_, "changed",
+                         G_CALLBACK(on_temporal_policy_changed), this);
+    }
+}
+
+void FileManagerWindow::refresh_modified_cells()
+{
+    for (GtkWidget *cell : modified_cells_) {
+        auto *info = G_FILE_INFO(
+            g_object_get_data(G_OBJECT(cell), "ifm-modified-info"));
+        if (info == nullptr) {
+            continue;
+        }
+        const std::string value = detail_modified_text(info);
+        gtk_label_set_text(GTK_LABEL(cell), value.c_str());
+    }
+}
+
+void FileManagerWindow::on_temporal_policy_changed(GFileMonitor *monitor,
+                                                   GFile *file,
+                                                   GFile *other_file,
+                                                   GFileMonitorEvent event_type,
+                                                   gpointer user_data)
+{
+    (void)monitor;
+    (void)event_type;
+    auto *self = static_cast<FileManagerWindow *>(user_data);
+    const auto has_basename = [](GFile *candidate, const char *expected) {
+        if (candidate == nullptr) {
+            return false;
+        }
+        char *basename = g_file_get_basename(candidate);
+        const bool matches = g_strcmp0(basename, expected) == 0;
+        g_free(basename);
+        return matches;
+    };
+
+    if (self->temporal_policy_monitoring_parent_) {
+        if (!has_basename(file, self->temporal_policy_watch_name_.c_str()) &&
+            !has_basename(other_file, self->temporal_policy_watch_name_.c_str())) {
+            return;
+        }
+        self->arm_temporal_policy_monitor();
+        self->refresh_modified_cells();
+        return;
+    }
+
+    if (has_basename(file, "presentation.conf") ||
+        has_basename(other_file, "presentation.conf")) {
+        self->refresh_modified_cells();
+    }
+}
+
+void FileManagerWindow::on_modified_cell_finalized(gpointer user_data,
+                                                   GObject *where_object_was)
+{
+    auto *self = static_cast<FileManagerWindow *>(user_data);
+    self->modified_cells_.erase(GTK_WIDGET(where_object_was));
 }
 
 GFile *FileManagerWindow::file_from_location_text(const char *text) const
@@ -657,96 +1049,249 @@ void FileManagerWindow::on_sidebar_row_activated(GtkListBox *box, GtkListBoxRow 
     }
 }
 
-void FileManagerWindow::on_list_activate(GtkListView *view, const guint position, gpointer user_data)
+void FileManagerWindow::on_list_activate(GtkColumnView *view, const guint position, gpointer user_data)
 {
     (void)view;
+    static_cast<FileManagerWindow *>(user_data)->activate_position(position);
+}
+
+void FileManagerWindow::on_grid_activate(GtkGridView *view, const guint position, gpointer user_data)
+{
+    (void)view;
+    static_cast<FileManagerWindow *>(user_data)->activate_position(position);
+}
+
+void FileManagerWindow::on_view_mode_toggled(GtkToggleButton *button, gpointer user_data)
+{
+    if (!gtk_toggle_button_get_active(button)) {
+        return;
+    }
+
+    const int encoded = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "ifm-view-mode"));
+    if (encoded < 1 || encoded > 3) {
+        return;
+    }
+
     auto *self = static_cast<FileManagerWindow *>(user_data);
-    if (self->current_location_ == nullptr) {
-        return;
-    }
-
-    GFileInfo *info = G_FILE_INFO(g_list_model_get_item(G_LIST_MODEL(self->directory_list_), position));
-    if (info == nullptr) {
-        return;
-    }
-
-    const char *name = g_file_info_get_name(info);
-    if (name == nullptr) {
-        g_object_unref(info);
-        return;
-    }
-
-    GFile *child = g_file_get_child(self->current_location_, name);
-    if (g_file_info_get_file_type(info) == G_FILE_TYPE_DIRECTORY) {
-        self->navigate_to(child, true);
-    } else {
-        char *uri = g_file_get_uri(child);
-        if (uri != nullptr) {
-            g_app_info_launch_default_for_uri_async(uri, nullptr, nullptr,
-                                                    &FileManagerWindow::on_launch_finished, self);
-            g_free(uri);
-        }
-    }
-
-    g_object_unref(child);
-    g_object_unref(info);
+    self->set_view_mode(static_cast<ViewMode>(encoded - 1));
 }
 
 void FileManagerWindow::on_factory_setup(GtkSignalListItemFactory *factory,
                                          GtkListItem *item,
                                          gpointer user_data)
 {
-    (void)factory;
-    (void)user_data;
+    auto *self = static_cast<FileManagerWindow *>(user_data);
 
-    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
-    gtk_widget_set_margin_start(row, 12);
-    gtk_widget_set_margin_end(row, 12);
-    gtk_widget_set_margin_top(row, 8);
-    gtk_widget_set_margin_bottom(row, 8);
+    const int encoded = GPOINTER_TO_INT(
+        g_object_get_data(G_OBJECT(factory), "ifm-detail-field"));
+    if (encoded < static_cast<int>(DetailField::Name) ||
+        encoded > static_cast<int>(DetailField::Modified)) {
+        return;
+    }
 
-    GtkWidget *icon = gtk_image_new();
-    gtk_image_set_pixel_size(GTK_IMAGE(icon), 30);
-    gtk_box_append(GTK_BOX(row), icon);
+    const auto field = static_cast<DetailField>(encoded);
+    if (field == DetailField::Name) {
+        GtkWidget *cell = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+        gtk_widget_set_margin_start(cell, 8);
+        gtk_widget_set_margin_end(cell, 6);
+        gtk_widget_set_margin_top(cell, 5);
+        gtk_widget_set_margin_bottom(cell, 5);
 
-    GtkWidget *text = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
-    gtk_widget_set_hexpand(text, TRUE);
-    gtk_box_append(GTK_BOX(row), text);
+        GtkWidget *icon = gtk_image_new();
+        gtk_image_set_pixel_size(GTK_IMAGE(icon), kDetailIconSize);
+        gtk_widget_set_size_request(icon, kDetailIconSize, -1);
+        gtk_box_append(GTK_BOX(cell), icon);
 
-    GtkWidget *name = gtk_label_new("");
-    gtk_label_set_xalign(GTK_LABEL(name), 0.0F);
-    gtk_label_set_ellipsize(GTK_LABEL(name), PANGO_ELLIPSIZE_END);
-    gtk_widget_add_css_class(name, "ifm-file-name");
-    gtk_box_append(GTK_BOX(text), name);
+        GtkWidget *name = gtk_label_new("");
+        gtk_label_set_xalign(GTK_LABEL(name), 0.0F);
+        gtk_label_set_single_line_mode(GTK_LABEL(name), TRUE);
+        gtk_label_set_ellipsize(GTK_LABEL(name), PANGO_ELLIPSIZE_END);
+        gtk_widget_set_hexpand(name, TRUE);
+        gtk_widget_set_halign(name, GTK_ALIGN_FILL);
+        gtk_widget_add_css_class(name, "ifm-file-name");
+        gtk_box_append(GTK_BOX(cell), name);
 
-    GtkWidget *meta = gtk_label_new("");
-    gtk_label_set_xalign(GTK_LABEL(meta), 0.0F);
-    gtk_label_set_ellipsize(GTK_LABEL(meta), PANGO_ELLIPSIZE_END);
-    gtk_widget_add_css_class(meta, "ifm-file-meta");
-    gtk_box_append(GTK_BOX(text), meta);
+        g_object_set_data(G_OBJECT(cell), "ifm-icon", icon);
+        g_object_set_data(G_OBJECT(cell), "ifm-name", name);
+        gtk_list_item_set_child(item, cell);
+        return;
+    }
 
-    g_object_set_data(G_OBJECT(row), "ifm-icon", icon);
-    g_object_set_data(G_OBJECT(row), "ifm-name", name);
-    g_object_set_data(G_OBJECT(row), "ifm-meta", meta);
-    gtk_list_item_set_child(item, row);
+    GtkWidget *label = gtk_label_new("");
+    gtk_label_set_xalign(GTK_LABEL(label), field == DetailField::Size ? 1.0F : 0.0F);
+    gtk_label_set_single_line_mode(GTK_LABEL(label), TRUE);
+    gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
+    gtk_widget_set_margin_start(label, 6);
+    gtk_widget_set_margin_end(label, 6);
+    gtk_widget_set_margin_top(label, 5);
+    gtk_widget_set_margin_bottom(label, 5);
+    gtk_widget_set_halign(label, GTK_ALIGN_FILL);
+    gtk_widget_add_css_class(label, "ifm-detail-secondary");
+    gtk_list_item_set_child(item, label);
+    if (field == DetailField::Modified) {
+        self->modified_cells_.insert(label);
+        g_object_weak_ref(
+            G_OBJECT(label), &FileManagerWindow::on_modified_cell_finalized, self);
+    }
 }
 
 void FileManagerWindow::on_factory_bind(GtkSignalListItemFactory *factory,
                                         GtkListItem *item,
                                         gpointer user_data)
 {
+    auto *self = static_cast<FileManagerWindow *>(user_data);
+
+    auto *info = G_FILE_INFO(gtk_list_item_get_item(item));
+    GtkWidget *child = gtk_list_item_get_child(item);
+    if (info == nullptr || child == nullptr) {
+        return;
+    }
+
+    const int encoded = GPOINTER_TO_INT(
+        g_object_get_data(G_OBJECT(factory), "ifm-detail-field"));
+    if (encoded < static_cast<int>(DetailField::Name) ||
+        encoded > static_cast<int>(DetailField::Modified)) {
+        return;
+    }
+
+    switch (static_cast<DetailField>(encoded)) {
+    case DetailField::Name: {
+        auto *icon = GTK_IMAGE(g_object_get_data(G_OBJECT(child), "ifm-icon"));
+        auto *name = GTK_LABEL(g_object_get_data(G_OBJECT(child), "ifm-name"));
+        if (GIcon *file_icon = g_file_info_get_icon(info); file_icon != nullptr) {
+            gtk_image_set_from_gicon(icon, file_icon);
+        } else {
+            gtk_image_set_from_icon_name(icon, "text-x-generic-symbolic");
+        }
+        const char *display_name = g_file_info_get_display_name(info);
+        gtk_label_set_text(name, display_name != nullptr ? display_name : "");
+        break;
+    }
+    case DetailField::Type: {
+        const std::string value = detail_type_text(info);
+        gtk_label_set_text(GTK_LABEL(child), value.c_str());
+        break;
+    }
+    case DetailField::Size: {
+        const std::string value = detail_size_text(info);
+        gtk_label_set_text(GTK_LABEL(child), value.c_str());
+        break;
+    }
+    case DetailField::Modified: {
+        g_object_set_data_full(
+            G_OBJECT(child), "ifm-modified-info", g_object_ref(info),
+            reinterpret_cast<GDestroyNotify>(g_object_unref));
+        const std::string value = detail_modified_text(info);
+        gtk_label_set_text(GTK_LABEL(child), value.c_str());
+        break;
+    }
+    }
+}
+
+void FileManagerWindow::on_factory_unbind(GtkSignalListItemFactory *factory,
+                                          GtkListItem *item,
+                                          gpointer user_data)
+{
+    (void)user_data;
+    const int encoded = GPOINTER_TO_INT(
+        g_object_get_data(G_OBJECT(factory), "ifm-detail-field"));
+    if (encoded != static_cast<int>(DetailField::Modified)) {
+        return;
+    }
+    if (GtkWidget *child = gtk_list_item_get_child(item); child != nullptr) {
+        g_object_set_data_full(
+            G_OBJECT(child), "ifm-modified-info", nullptr, nullptr);
+    }
+}
+
+void FileManagerWindow::on_icon_factory_setup(GtkSignalListItemFactory *factory,
+                                              GtkListItem *item,
+                                              gpointer user_data)
+{
+    (void)user_data;
+
+    const int icon_size = std::max(48, GPOINTER_TO_INT(
+        g_object_get_data(G_OBJECT(factory), "ifm-icon-size")));
+    const int tile_width = std::max(108, GPOINTER_TO_INT(
+        g_object_get_data(G_OBJECT(factory), "ifm-tile-width")));
+
+    GtkWidget *tile = gtk_box_new(GTK_ORIENTATION_VERTICAL, 7);
+    gtk_widget_set_size_request(tile, tile_width, -1);
+    gtk_widget_set_halign(tile, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(tile, GTK_ALIGN_START);
+    gtk_widget_add_css_class(tile, "ifm-icon-tile");
+
+    GtkWidget *icon = gtk_image_new();
+    gtk_image_set_pixel_size(GTK_IMAGE(icon), icon_size);
+    gtk_widget_set_halign(icon, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(tile), icon);
+
+    GtkWidget *name = gtk_label_new("");
+    gtk_label_set_xalign(GTK_LABEL(name), 0.5F);
+    gtk_label_set_justify(GTK_LABEL(name), GTK_JUSTIFY_CENTER);
+    gtk_label_set_wrap(GTK_LABEL(name), TRUE);
+    gtk_label_set_wrap_mode(GTK_LABEL(name), PANGO_WRAP_WORD_CHAR);
+    gtk_label_set_lines(GTK_LABEL(name), 2);
+    gtk_label_set_ellipsize(GTK_LABEL(name), PANGO_ELLIPSIZE_END);
+    gtk_label_set_max_width_chars(GTK_LABEL(name), 18);
+    gtk_widget_add_css_class(name, "ifm-file-name");
+    gtk_box_append(GTK_BOX(tile), name);
+
+    g_object_set_data(G_OBJECT(tile), "ifm-icon", icon);
+    g_object_set_data(G_OBJECT(tile), "ifm-name", name);
+    gtk_list_item_set_child(item, tile);
+}
+
+void FileManagerWindow::on_compact_factory_setup(GtkSignalListItemFactory *factory,
+                                                 GtkListItem *item,
+                                                 gpointer user_data)
+{
+    (void)factory;
+    (void)user_data;
+
+    // Compact is a distinct dense-scan composition, not a scaled-down Visual tile:
+    // the name sits beside a small icon so several readable columns can coexist.
+    GtkWidget *tile = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    gtk_widget_set_size_request(tile, 196, -1);
+    gtk_widget_set_halign(tile, GTK_ALIGN_FILL);
+    gtk_widget_set_valign(tile, GTK_ALIGN_CENTER);
+    gtk_widget_add_css_class(tile, "ifm-icon-tile");
+    gtk_widget_add_css_class(tile, "ifm-compact-tile");
+
+    GtkWidget *icon = gtk_image_new();
+    gtk_image_set_pixel_size(GTK_IMAGE(icon), 24);
+    gtk_widget_set_halign(icon, GTK_ALIGN_START);
+    gtk_box_append(GTK_BOX(tile), icon);
+
+    GtkWidget *name = gtk_label_new("");
+    gtk_label_set_xalign(GTK_LABEL(name), 0.0F);
+    gtk_label_set_single_line_mode(GTK_LABEL(name), TRUE);
+    gtk_label_set_ellipsize(GTK_LABEL(name), PANGO_ELLIPSIZE_END);
+    gtk_widget_set_hexpand(name, TRUE);
+    gtk_widget_set_halign(name, GTK_ALIGN_FILL);
+    gtk_widget_add_css_class(name, "ifm-file-name");
+    gtk_box_append(GTK_BOX(tile), name);
+
+    g_object_set_data(G_OBJECT(tile), "ifm-icon", icon);
+    g_object_set_data(G_OBJECT(tile), "ifm-name", name);
+    gtk_list_item_set_child(item, tile);
+}
+
+void FileManagerWindow::on_icon_factory_bind(GtkSignalListItemFactory *factory,
+                                             GtkListItem *item,
+                                             gpointer user_data)
+{
     (void)factory;
     (void)user_data;
 
     auto *info = G_FILE_INFO(gtk_list_item_get_item(item));
-    GtkWidget *row = gtk_list_item_get_child(item);
-    if (info == nullptr || row == nullptr) {
+    GtkWidget *tile = gtk_list_item_get_child(item);
+    if (info == nullptr || tile == nullptr) {
         return;
     }
 
-    auto *icon = GTK_IMAGE(g_object_get_data(G_OBJECT(row), "ifm-icon"));
-    auto *name = GTK_LABEL(g_object_get_data(G_OBJECT(row), "ifm-name"));
-    auto *meta = GTK_LABEL(g_object_get_data(G_OBJECT(row), "ifm-meta"));
+    auto *icon = GTK_IMAGE(g_object_get_data(G_OBJECT(tile), "ifm-icon"));
+    auto *name = GTK_LABEL(g_object_get_data(G_OBJECT(tile), "ifm-name"));
 
     if (GIcon *file_icon = g_file_info_get_icon(info); file_icon != nullptr) {
         gtk_image_set_from_gicon(icon, file_icon);
@@ -756,14 +1301,6 @@ void FileManagerWindow::on_factory_bind(GtkSignalListItemFactory *factory,
 
     const char *display_name = g_file_info_get_display_name(info);
     gtk_label_set_text(name, display_name != nullptr ? display_name : "");
-
-    if (g_file_info_get_file_type(info) == G_FILE_TYPE_DIRECTORY) {
-        gtk_label_set_text(meta, "Folder");
-    } else {
-        char *formatted_size = g_format_size(static_cast<guint64>(g_file_info_get_size(info)));
-        gtk_label_set_text(meta, formatted_size != nullptr ? formatted_size : "File");
-        g_free(formatted_size);
-    }
 }
 
 void FileManagerWindow::on_loading_changed(GObject *object, GParamSpec *pspec, gpointer user_data)
@@ -776,14 +1313,17 @@ void FileManagerWindow::on_loading_changed(GObject *object, GParamSpec *pspec, g
 void FileManagerWindow::on_launch_finished(GObject *source, GAsyncResult *result, gpointer user_data)
 {
     (void)source;
-    auto *self = static_cast<FileManagerWindow *>(user_data);
+    auto *status = GTK_LABEL(user_data);
     GError *error = nullptr;
     if (!g_app_info_launch_default_for_uri_finish(result, &error)) {
         if (error != nullptr) {
-            gtk_label_set_text(GTK_LABEL(self->status_label_), error->message);
+            if (gtk_widget_get_root(GTK_WIDGET(status)) != nullptr) {
+                gtk_label_set_text(status, error->message);
+            }
             g_error_free(error);
         }
     }
+    g_object_unref(status);
 }
 
 void FileManagerWindow::on_multi_selection_changed(GtkSelectionModel *model,

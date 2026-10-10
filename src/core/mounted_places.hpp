@@ -52,6 +52,11 @@ private:
 // UUID; reappearance after an unavailable interval deliberately requires a UUID.
 [[nodiscard]] bool mounted_places_have_same_source(const MountedPlace &left,
                                                    const MountedPlace &right);
+// A sidebar row represents a navigation target, not the supplying source alone.
+[[nodiscard]] bool mounted_places_have_same_target(const MountedPlace &left,
+                                                  const MountedPlace &right);
+[[nodiscard]] std::vector<MountedPlace> normalize_mounted_places(
+    std::vector<MountedPlace> places);
 [[nodiscard]] bool mounted_place_reappearance_is_proven(const MountedPlace &previous,
                                                         const MountedPlace &current);
 

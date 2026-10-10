@@ -523,7 +523,15 @@ void BatchItemOperationController::update_action_state()
     if (menu_button_ == nullptr) {
         return;
     }
-    const bool enabled = !busy_ && !chooser_busy_ && selected_sources().size() > 1U;
+    GFile *parent = directory_list_ != nullptr
+        ? gtk_directory_list_get_file(directory_list_) : nullptr;
+    GtkBitset *selected = selection_ != nullptr
+        ? gtk_selection_model_get_selection(GTK_SELECTION_MODEL(selection_)) : nullptr;
+    const bool enabled = !busy_ && !chooser_busy_ && parent != nullptr &&
+        g_file_is_native(parent) && selected != nullptr && gtk_bitset_get_size(selected) > 1U;
+    if (selected != nullptr) {
+        gtk_bitset_unref(selected);
+    }
     gtk_widget_set_sensitive(menu_button_, enabled);
     gtk_widget_set_visible(menu_button_, enabled);
 }
@@ -540,12 +548,19 @@ std::vector<std::string> BatchItemOperationController::selected_sources() const
         return sources;
     }
 
-    const guint count = g_list_model_get_n_items(G_LIST_MODEL(directory_list_));
-    for (guint index = 0U; index < count; ++index) {
-        if (!gtk_selection_model_is_selected(GTK_SELECTION_MODEL(selection_), index)) {
-            continue;
-        }
-        GFileInfo *info = G_FILE_INFO(g_list_model_get_item(G_LIST_MODEL(directory_list_), index));
+    // Selection positions belong to the presentation model. Once Detail sorting
+    // is active, indexing the raw GtkDirectoryList with those positions could
+    // operate on the wrong files, so selected items must come from that model.
+    GListModel *model = gtk_multi_selection_get_model(selection_);
+    if (model == nullptr) {
+        return sources;
+    }
+    GtkBitset *selected = gtk_selection_model_get_selection(GTK_SELECTION_MODEL(selection_));
+    GtkBitsetIter iterator;
+    guint index = 0U;
+    for (gboolean valid = gtk_bitset_iter_init_first(&iterator, selected, &index);
+         valid; valid = gtk_bitset_iter_next(&iterator, &index)) {
+        GFileInfo *info = G_FILE_INFO(g_list_model_get_item(model, index));
         if (info == nullptr) {
             continue;
         }
@@ -561,6 +576,7 @@ std::vector<std::string> BatchItemOperationController::selected_sources() const
         }
         g_object_unref(info);
     }
+    gtk_bitset_unref(selected);
     return sources;
 }
 

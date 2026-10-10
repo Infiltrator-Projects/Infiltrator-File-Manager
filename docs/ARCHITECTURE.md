@@ -1,6 +1,6 @@
 # Infiltrator File Manager — Initial Architecture
 
-This document defines the initial architectural model derived from the project's design philosophy and October 2026 research review. It is intentionally pre-implementation. Performance measurements, prototypes and further research may change details before code architecture is frozen.
+This document defines the architectural model derived from the project's design philosophy and October 2026 research review. The early C++20/GTK 4 implementation now provides browsing, mounted places, deterministic operation engines and an append-only operation journal. The larger object/capability, retrieval and provider models below remain intended architecture; their presence here does not claim implementation. Performance measurements, prototypes and further research may change details before code architecture is frozen.
 
 ## 1. Architectural boundary
 
@@ -314,6 +314,18 @@ The architecture nevertheless assumes several information roles:
 
 UI concepts must map to the same underlying application model rather than implementing independent file logic per view.
 
+### Browse presentation invariants
+
+Directory view mode is presentation state over one shared browse model. The initial production contract distinguishes three task-oriented presentations: **Detail / analytical**, **Visual**, and **Compact / dense scan**.
+
+The presentation layer may create different GTK/view objects to render those modes efficiently, but it must not duplicate navigation, selection authority, sorting policy, activation behaviour, drag/drop policy, context-action policy or file-operation logic. A switch of presentation must preserve the user's logical selection and current location and must not trigger a filesystem mutation or reinterpret the underlying objects.
+
+View identity is separate from density. A Visual view may support different icon/thumbnail sizes without becoming a different semantic view. Detail may vary row density or columns. Compact remains a distinct multi-column small-icon-plus-label composition rather than a shrunken Visual grid.
+
+The remembered presentation is application-level presentation state. Global persistence across ordinary restart is the baseline. Per-location presentation memory may be layered on later, but must not be required by the browse model and must not create hidden filesystem semantics.
+
+All three presentations must consume the same asynchronous directory data and remain compatible with large-directory virtualisation. Switching presentation should not cause duplicate enumeration or independent metadata pipelines unless measurement proves a view-specific enrichment is required.
+
 ## 11. Security and privacy
 
 File content, paths, filenames, metadata, semantic vectors and activity relationships are private user information.
@@ -351,21 +363,24 @@ Qualification should eventually include:
 - search-index corruption/rebuild;
 - semantic subsystem unavailable/corrupt;
 - mixed filesystems in one operation;
-- InfiltratorFS history/object identity integration; and
+- InfiltratorFS history/object identity integration;
+- view switching with preserved selection/sort/location state;
+- large-directory behaviour in Detail, Visual and Compact presentations;
+- narrow-window and Day/Night rendering across presentations; and
 - accessibility/keyboard-only workflows.
 
 The success path, failure path and recovery path are all part of the feature.
 
 ## 13. Architecture questions deliberately left open
 
-The following must be decided through research/prototyping rather than assumption:
+The initial desktop uses GTK 4/GIO with C++20 Files components and the pinned C Common substrate. The current journal uses escaped tab-separated START/END records; cross-filesystem moves copy, verify and then remove the source. Those choices still need stronger concurrent-writer, crash and namespace-race qualification.
 
-- GTK3, GTK4 or another presentation framework for the initial Linux product;
-- exact C/C++ component boundaries;
+The following remain open and must be decided through research/prototyping rather than assumption:
+
+- further extraction of toolkit-neutral file/object/capability boundaries;
 - exact local semantic embedding/index implementation;
 - whether activity contexts are automatic, explicit or hybrid;
-- the operation-journal persistence format;
-- cross-filesystem move recovery strategy;
+- stronger operation-journal persistence and cross-filesystem move recovery guarantees;
 - remote filesystem abstraction boundaries;
 - plugin/extension model;
 - preview/thumbnail sandboxing; and

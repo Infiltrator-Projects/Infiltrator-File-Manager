@@ -9,6 +9,8 @@ using infiltrator::files::MountedPlacesMonitor;
 using infiltrator::files::most_specific_mounted_place_for_location;
 using infiltrator::files::mounted_place_reappearance_is_proven;
 using infiltrator::files::mounted_places_have_same_source;
+using infiltrator::files::mounted_places_have_same_target;
+using infiltrator::files::normalize_mounted_places;
 
 int main()
 {
@@ -71,6 +73,25 @@ int main()
         return 9;
     }
 
+    const MountedPlace camera_alias{
+        "Other folder", "file:///media/user/CAMERA/OTHER", "file:///media/user/CAMERA", "camera-uuid", true};
+    if (!mounted_places_have_same_source(places[1], camera_alias) ||
+        mounted_places_have_same_target(places[1], camera_alias)) {
+        return 13;
+    }
+    MountedPlace other_root = camera_alias;
+    other_root.root_uri = "file:///other/source";
+    MountedPlace renamed_duplicate = camera_alias;
+    renamed_duplicate.name = "ZZZ renamed duplicate";
+    MountedPlace other_uuid = camera_alias;
+    other_uuid.name = "Middle name";
+    other_uuid.mount_uuid = "other-uuid";
+    const auto normalized = normalize_mounted_places({places[1], camera_alias, other_root,
+                                                       renamed_duplicate, other_uuid});
+    if (normalized.size() != 4U) {
+        return 14;
+    }
+
     // Repeated construction/destruction exercises the signal disconnect-before-unref lifetime path.
     for (std::size_t iteration = 0U; iteration < 32U; ++iteration) {
         MountedPlacesMonitor monitor([]() {});
@@ -87,7 +108,7 @@ int main()
                     (previous.name == place.name && previous.uri > place.uri)) {
                     return 11;
                 }
-                if (previous.uri == place.uri) {
+                if (mounted_places_have_same_target(previous, place)) {
                     return 12;
                 }
             }

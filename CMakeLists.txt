@@ -17,8 +17,8 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-set(INFILTRATR_COMMON_EXPECTED_VERSION "1.19.38")
-set(INFILTRATR_COMMON_EXPECTED_COMMIT "04b5e219924ec0e65ef9d254c114fad4de0abd29")
+set(INFILTRATR_COMMON_EXPECTED_VERSION "1.19.41")
+set(INFILTRATR_COMMON_EXPECTED_COMMIT "b0387b7ab5d71cda60748e2506b85cdc0e6b5e8b")
 set(INFILTRATR_COMMON_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/infiltratr-common")
 
 if(NOT EXISTS "${INFILTRATR_COMMON_DIR}/VERSION")
@@ -78,6 +78,7 @@ add_executable(infiltrator-file-manager
     src/ui/batch_item_operation_controller.cpp
     src/ui/create_folder_controller.cpp
     src/ui/destructive_operation_controller.cpp
+    src/ui/detail_metadata.cpp
     src/ui/file_manager_window.cpp
     src/ui/item_operation_controller.cpp
     src/ui/journal_recovery_controller.cpp
@@ -100,9 +101,36 @@ if(BUILD_TESTING)
     target_link_libraries(location-model-test PRIVATE infiltrator-files-core)
     add_test(NAME location-model COMMAND location-model-test)
 
+    add_executable(detail-metadata-test
+        tests/detail_metadata_test.cpp
+        src/ui/detail_metadata.cpp)
+    add_library(calendar-date-test-fixture MODULE tests/calendar_date_fixture.c)
+    target_compile_definitions(detail-metadata-test PRIVATE
+        CALENDAR_DATE_FIXTURE_PATH="$<TARGET_FILE:calendar-date-test-fixture>")
+    add_dependencies(detail-metadata-test calendar-date-test-fixture)
+    target_link_libraries(detail-metadata-test PRIVATE infiltrator-files-core)
+    add_test(NAME detail-metadata COMMAND detail-metadata-test)
+
     add_executable(mounted-places-test tests/mounted_places_test.cpp)
     target_link_libraries(mounted-places-test PRIVATE infiltrator-files-core)
     add_test(NAME mounted-places COMMAND mounted-places-test)
+
+    add_executable(window-state-test
+        tests/window_state_test.cpp
+        src/ui/file_manager_window.cpp
+        src/ui/detail_metadata.cpp)
+    target_link_libraries(window-state-test PRIVATE infiltrator-files-core PkgConfig::GTK4)
+    find_program(XVFB_RUN_EXECUTABLE xvfb-run)
+    find_program(DBUS_RUN_SESSION_EXECUTABLE dbus-run-session)
+    if(XVFB_RUN_EXECUTABLE AND DBUS_RUN_SESSION_EXECUTABLE)
+        add_test(NAME window-state COMMAND "${DBUS_RUN_SESSION_EXECUTABLE}" --
+            "${XVFB_RUN_EXECUTABLE}" -a $<TARGET_FILE:window-state-test>)
+        set_tests_properties(window-state PROPERTIES
+            ENVIRONMENT "G_DEBUG=fatal-criticals;GTK_A11Y=none;GSETTINGS_BACKEND=memory"
+            TIMEOUT 45)
+    else()
+        message(STATUS "Headless window-state test requires xvfb-run and dbus-run-session")
+    endif()
 
     add_executable(operation-engine-test tests/operation_engine_test.cpp)
     target_link_libraries(operation-engine-test PRIVATE infiltrator-files-core)

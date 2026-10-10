@@ -172,6 +172,26 @@ For a file manager this suggests:
 - contextual actions rather than permanent toolbar accumulation; and
 - adaptable overview/detail presentation without turning every window into a configuration exercise.
 
+### Browse-presentation consequence
+
+This direction argues against treating a single directory layout as universally optimal. Different browsing tasks have different information needs, so Files should support a small number of clearly differentiated presentations without fragmenting the underlying interaction model.
+
+The current design brief is therefore task-based:
+
+- **Detail / analytical** for comparing names and metadata across one-item-per-row records;
+- **Visual** for recognition through larger icons/thumbnails and spatial grouping; and
+- **Compact / dense scan** for exposing many filenames at once with small icons and labels flowing across multiple columns.
+
+These are different compositions, not merely three icon sizes. In particular, Compact should not be implemented as a miniature Visual grid.
+
+The user should be able to switch between presentations cheaply because the useful presentation can change with the current task. Selection, sorting, activation, drag/drop, context actions and filesystem semantics should remain stable across that switch. View presentation is therefore presentation state, not a second application model.
+
+Density should remain independently controllable where useful. Icon or thumbnail size can vary inside Visual; row density or visible columns can vary inside Detail. This prevents a future zoom/density control from being confused with the identity of the presentation itself.
+
+The baseline persistence rule is global remembered presentation across ordinary application restarts. Per-location view memory remains optional and should only be introduced if testing shows that its benefit outweighs surprise and hidden state.
+
+Validation should include task switching, preserved selection, keyboard/focus behaviour, large-directory responsiveness, narrow windows, Day/Night rendering, and consistent operations across presentations. Exact spacing, control placement and density steps remain prototype questions rather than research conclusions.
+
 ## 7. Mercedes-Benz design provides a useful quality rubric
 
 Mercedes-Benz's 2026 brand material describes the brand around technical excellence, quality, reliability and innovation. Its current design philosophy describes "Sensual Purity" as the balance of emotion/intellect and sensuality/reduction. Mercedes-Benz's MBUX "Zero Layer" work similarly attempts to reduce menu traversal by surfacing contextually relevant functions at the top level.
@@ -255,6 +275,7 @@ The following are research hypotheses, not yet frozen requirements:
 6. **Local semantic retrieval:** a local semantic index can materially improve vague re-finding tasks without becoming required for normal file access.
 7. **Contextual zero-layer actions:** a small number of highly relevant actions can reduce menu traversal without hiding the complete action set.
 8. **Derived workspaces:** activity/project working sets can reduce re-finding effort without physically reorganising files.
+9. **Task-based browse presentation:** fast switching among Detail, Visual and Compact presentations should reduce friction when a browsing task changes, provided all three remain views over the same selection and file-operation model.
 
 ## 11. Research still required before implementation architecture is frozen
 
@@ -266,7 +287,8 @@ The following are research hypotheses, not yet frozen requirements:
 - test very large directories and metadata-heavy workloads;
 - test history UX for object-versus-path identity;
 - test novice, conventional navigation-heavy and hyper-searcher workflows separately;
-- investigate accessibility and keyboard-first interaction from the beginning; and
+- investigate accessibility and keyboard-first interaction from the beginning;
+- compare Detail, Visual and Compact browse presentations using realistic folders and tasks; and
 - prototype more than one visual/navigation concept before selecting the production UI.
 
 ## Research discipline
