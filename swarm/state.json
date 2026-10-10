@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "revision": 14,
+  "revision": 15,
   "mode": "WORK",
-  "updated_at": "2026-10-10T13:13:49.737Z",
+  "updated_at": "2026-10-10T13:21:52.442Z",
   "baseline": {
     "main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
     "version": "0.1.16",
@@ -11,7 +11,7 @@
   },
   "stroke": {
     "id": "files-20261010-destination-ownership",
-    "phase": "BUILDING",
+    "phase": "REVIEW_READY",
     "package": {
       "title": "Protect destination ownership during transfers and replacement rollback",
       "golden_journeys": [
@@ -44,9 +44,9 @@
       "url": "https://github.com/Infiltrator-Projects/Infiltrator-File-Manager/pull/10",
       "branch": "swarm/destination-ownership",
       "base_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
-      "head_sha": "b4a48717cdcae598a6dab92ec538700769c774d7",
+      "head_sha": "d6b1ba6224f1b80079a2de497c5f0993a4819447",
       "draft": false,
-      "status": "BUILDING: exact-head CI green but five review threads require complete correction; Release test currently inert.",
+      "status": "REVIEW_READY: complete five-thread hard set corrected; all inline threads resolved with exact evidence; exact-head Release CI green.",
       "changed_files": [
         "CMakeLists.txt",
         "README.md",
@@ -57,11 +57,14 @@
         "tests/destination_ownership_test.cpp"
       ],
       "evidence": [
-        "Atomic RENAME_NOREPLACE destination commits.",
-        "Exclusive O_CREAT|O_EXCL regular-file creation.",
-        "Inode/device ownership ledger for cleanup.",
-        "Rollback refuses occupied destination and retains staged original.",
-        "Deterministic destination-ownership regression test."
+        "Atomic Linux RENAME_NOREPLACE destination commits for Rename/Move and rollback restore.",
+        "Exclusive O_CREAT|O_EXCL regular-file creation and checked exclusive directory creation.",
+        "Device/inode ownership ledger with same-directory atomic quarantine, post-quarantine identity verification, and competitor-safe restoration/retention.",
+        "Copy success verifies the visible destination identity before cross-volume source removal.",
+        "Replacement failure removes only unchanged owned partial output before restoring the staged original; competitor content remains authoritative.",
+        "Release-effective explicit-check regression executable covers rename/file/directory no-clobber, changed-path cleanup, owned cleanup, and rollback conflict.",
+        "Exact-head Verify run 38055256508 succeeded for d6b1ba6224f1b80079a2de497c5f0993a4819447.",
+        "All five automated review threads have evidence-backed replies and are resolved."
       ]
     },
     "review": null,
@@ -70,11 +73,7 @@
     "release": null,
     "blocker": null
   },
-  "lease": {
-    "role": "Builder",
-    "token": "builder-destination-ownership-20261010T1314Z",
-    "expires_at": "2026-10-10T13:58:49.738Z"
-  },
+  "lease": null,
   "heartbeats": {
     "Architect": {
       "at": "2026-10-10T12:55:59.134Z",
@@ -84,11 +83,11 @@
       "next_action": "Builder must complete the existing PR #10 hard set and Release-effective evidence; do not nominate another package until this stroke is reviewed, integrated and published."
     },
     "Builder": {
-      "at": "2026-10-10T13:13:49.737Z",
-      "status": "Reclaimed expired Builder lease; correcting complete PR #10 hard set",
-      "observed_revision": 13,
-      "observed_head": "b4a48717cdcae598a6dab92ec538700769c774d7",
-      "next_action": "Implement atomic quarantine cleanup, directory claim checks, owned-partial recovery and Release-effective tests; reconcile every review thread and rerun exact-head CI."
+      "at": "2026-10-10T13:21:52.442Z",
+      "status": "REVIEW_READY; complete PR #10 hard set corrected, all threads resolved, exact-head Release CI green",
+      "observed_revision": 14,
+      "observed_head": "d6b1ba6224f1b80079a2de497c5f0993a4819447",
+      "next_action": "Reviewer must perform a fresh broad independent review of exact head d6b1ba6224f1b80079a2de497c5f0993a4819447 and submit the formal verdict."
     },
     "Reviewer": {
       "at": "2026-10-10T12:25:57.300Z",
@@ -114,9 +113,9 @@
   },
   "last_transition": {
     "role": "Builder",
-    "from": "BUILD_READY",
-    "to": "BUILDING",
-    "reason": "Claimed the approved destination-ownership package against current main 8c2daf6c."
+    "from": "BUILDING",
+    "to": "REVIEW_READY",
+    "reason": "Completed the full five-thread correction set on PR #10; exact-head Release workflow 38055256508 is green and all existing inline threads are resolved with evidence."
   },
   "health": {
     "nonce": "files-swarm-20261010-1136",
