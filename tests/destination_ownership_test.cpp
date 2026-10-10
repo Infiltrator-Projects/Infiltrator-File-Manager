@@ -181,7 +181,84 @@ int main()
         return 21;
     }
 
+    const auto proof_root = root / "proof-root";
+    const auto proof_child = proof_root / "child";
+    const auto displaced_child = root / "displaced-proof-child";
+    error.clear();
+    if (!require(std::filesystem::create_directory(proof_root, error) &&
+                     write_text(proof_child, "owned child"),
+                 "could not create complete-proof fixture")) {
+        return 22;
+    }
+    ownership::OwnedOutputs proof_outputs;
+    if (!require(ownership::record(proof_root, proof_outputs, error) &&
+                     ownership::record(proof_child, proof_outputs, error),
+                 "could not record complete-proof fixture")) {
+        return 23;
+    }
+    std::filesystem::rename(proof_child, displaced_child, error);
+    if (!require(!error && write_text(proof_child, "competing child"),
+                 "could not replace a copied child")) {
+        return 24;
+    }
+    error.clear();
+    if (!require(!ownership::verify_all(proof_outputs, error) &&
+                     read_text(proof_child) == "competing child",
+                 "complete ownership proof accepted a replaced child")) {
+        return 25;
+    }
+
+    const auto backup = root / "owned-backup";
+    const auto displaced_backup = root / "displaced-backup";
+    const auto restore_destination = root / "restore-destination";
+    if (!require(write_text(backup, "staged original"),
+                 "could not create staged-backup fixture")) {
+        return 26;
+    }
+    ownership::OwnedOutputs staged_outputs;
+    if (!require(ownership::record(backup, staged_outputs, error),
+                 "could not record staged-backup identity")) {
+        return 27;
+    }
+    std::filesystem::rename(backup, displaced_backup, error);
+    if (!require(!error && write_text(backup, "competing backup"),
+                 "could not replace staged-backup pathname")) {
+        return 28;
+    }
+    error.clear();
+    if (!require(!ownership::restore_owned(staged_outputs.front(), restore_destination, error) &&
+                     !std::filesystem::exists(restore_destination) &&
+                     read_text(backup) == "competing backup" &&
+                     read_text(displaced_backup) == "staged original",
+                 "rollback restored or displaced a non-owned staged backup")) {
+        return 29;
+    }
+
+    const auto cleanup_backup = root / "cleanup-backup";
+    const auto displaced_cleanup_backup = root / "displaced-cleanup-backup";
+    if (!require(write_text(cleanup_backup, "owned backup"),
+                 "could not create backup-cleanup fixture")) {
+        return 30;
+    }
+    ownership::OwnedOutputs cleanup_backup_outputs;
+    if (!require(ownership::record(cleanup_backup, cleanup_backup_outputs, error),
+                 "could not record backup-cleanup fixture")) {
+        return 31;
+    }
+    std::filesystem::rename(cleanup_backup, displaced_cleanup_backup, error);
+    if (!require(!error && write_text(cleanup_backup, "competing backup"),
+                 "could not replace backup before cleanup")) {
+        return 32;
+    }
+    error.clear();
+    if (!require(!ownership::remove_owned_tree(cleanup_backup_outputs.front(), error) &&
+                     read_text(cleanup_backup) == "competing backup" &&
+                     read_text(displaced_cleanup_backup) == "owned backup",
+                 "successful replacement cleanup deleted a competing backup")) {
+        return 33;
+    }
+
     error.clear();
     std::filesystem::remove_all(root, error);
-    return require(!error, "could not remove test root") ? 0 : 22;
+    return require(!error, "could not remove test root") ? 0 : 34;
 }

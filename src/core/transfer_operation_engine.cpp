@@ -209,11 +209,6 @@ bool copy_regular_file(const std::filesystem::path &source,
         (void)::close(output);
         return false;
     }
-    if (::fsync(output) != 0) {
-        error = std::error_code(errno, std::generic_category());
-        (void)::close(output);
-        return false;
-    }
     if (::close(output) != 0) {
         error = std::error_code(errno, std::generic_category());
         return false;
@@ -268,7 +263,8 @@ OperationResult metadata_failure(const std::filesystem::path &destination,
 }
 OperationResult copy_exact(const std::filesystem::path &source,
                            const std::filesystem::path &destination,
-                           TransferControl *control)
+                           TransferControl *control,
+                           destination_ownership::OwnedOutputs *completed_outputs = nullptr)
 {
     std::error_code error;
     std::uintmax_t bytes = 0;
@@ -417,9 +413,7 @@ OperationResult copy_exact(const std::filesystem::path &source,
         }
     }
 
-    const bool destination_is_owned =
-        !owned.empty() && destination_ownership::same_object(destination, owned.front().identity, error);
-    if (!destination_is_owned || error) {
+    if (!destination_ownership::verify_all(owned, error)) {
         std::error_code cleanup_error;
         const bool cleaned = destination_ownership::cleanup_owned(owned, cleanup_error);
         return failure(OperationStatus::VerificationFailure,
@@ -430,6 +424,10 @@ OperationResult copy_exact(const std::filesystem::path &source,
                                 ? " The owned partial destination was removed."
                                 : " Non-owned or concurrently changed destination content was retained."),
                        !cleaned);
+    }
+
+    if (completed_outputs != nullptr) {
+        *completed_outputs = owned;
     }
 
     return OperationResult{OperationStatus::Success,
@@ -718,15 +716,53 @@ OperationResult TransferOperationEngine::move_item(const std::filesystem::path &
                        "The item could not be moved: " + error.message());
     }
 
-    OperationResult copied = copy_exact(source, decision.destination, control);
+    destination_ownership::OwnedOutputs copied_outputs;
+    OperationResult copied = copy_exact(source, decision.destination, control, &copied_outputs);
     if (!copied.ok()) {
         return copied;
     }
-    if (control != nullptr && control->cancelled()) {
-        return cancelled_result(decision.destination, true);
+
+    // A fully verified copy is the cross-volume move commit point. A cancellation
+    // observed after that point must not be reported as if no work completed.
+    if (!destination_ownership::verify_all(copied_outputs, error)) {
+        return failure(OperationStatus::VerificationFailure,
+                       OperationPhase::Verify,
+                       decision.destination,
+                       "The copied destination changed before the move could commit.",
+                       true);
     }
 
-    std::filesystem::remove_all(source, error);
+    const destination_ownership::OwnedOutput source_output{source, moved_identity};
+    const std::filesystem::path source_quarantine =
+        destination_ownership::quarantine_owned(source_output, error);
+    if (source_quarantine.empty()) {
+        std::error_code cleanup_error;
+        const bool cleaned = destination_ownership::cleanup_owned(copied_outputs, cleanup_error);
+        return failure(OperationStatus::VerificationFailure,
+                       OperationPhase::Verify,
+                       decision.destination,
+                       "The source changed before the cross-volume move could commit." +
+                           std::string{cleaned ? " The copied destination was removed."
+                                               : " Concurrently changed destination content was retained."},
+                       !cleaned);
+    }
+
+    if (!destination_ownership::verify_all(copied_outputs, error)) {
+        std::error_code restore_error;
+        (void)destination_ownership::restore_quarantine(
+            source_quarantine, source, restore_error);
+        std::error_code cleanup_error;
+        const bool cleaned = destination_ownership::cleanup_owned(copied_outputs, cleanup_error);
+        return failure(OperationStatus::VerificationFailure,
+                       OperationPhase::Verify,
+                       decision.destination,
+                       "The copied destination changed while the source was being committed." +
+                           std::string{cleaned ? " The copied destination was removed."
+                                               : " Concurrently changed destination content was retained."},
+                       !cleaned || restore_error);
+    }
+
+    std::filesystem::remove_all(source_quarantine, error);
     if (error) {
         return failure(OperationEngine::status_for_error(error),
                        OperationPhase::Execute,

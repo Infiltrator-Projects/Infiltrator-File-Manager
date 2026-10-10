@@ -155,6 +155,73 @@ inline bool restore_quarantine(const std::filesystem::path &quarantine,
     return rename_no_replace(quarantine, original, error);
 }
 
+inline bool verify_all(const OwnedOutputs &outputs, std::error_code &error) noexcept
+{
+    error.clear();
+    for (const OwnedOutput &output : outputs) {
+        if (!same_object(output.path, output.identity, error)) {
+            if (!error) {
+                error = std::make_error_code(std::errc::state_not_recoverable);
+            }
+            return false;
+        }
+    }
+    return !outputs.empty();
+}
+
+inline std::filesystem::path quarantine_owned(const OwnedOutput &output,
+                                              std::error_code &error) noexcept
+{
+    std::filesystem::path quarantine = quarantine_no_replace(output.path, error);
+    if (quarantine.empty()) {
+        return {};
+    }
+
+    std::error_code inspect_error;
+    if (same_object(quarantine, output.identity, inspect_error)) {
+        error.clear();
+        return quarantine;
+    }
+
+    std::error_code restore_error;
+    (void)restore_quarantine(quarantine, output.path, restore_error);
+    error = inspect_error ? inspect_error
+                          : (restore_error ? restore_error
+                                           : std::make_error_code(std::errc::state_not_recoverable));
+    return {};
+}
+
+inline bool restore_owned(const OwnedOutput &output,
+                          const std::filesystem::path &destination,
+                          std::error_code &error) noexcept
+{
+    const std::filesystem::path quarantine = quarantine_owned(output, error);
+    if (quarantine.empty()) {
+        return false;
+    }
+
+    if (rename_no_replace(quarantine, destination, error)) {
+        return true;
+    }
+
+    const std::error_code move_error = error;
+    std::error_code restore_error;
+    (void)restore_quarantine(quarantine, output.path, restore_error);
+    error = restore_error ? restore_error : move_error;
+    return false;
+}
+
+inline bool remove_owned_tree(const OwnedOutput &output, std::error_code &error) noexcept
+{
+    const std::filesystem::path quarantine = quarantine_owned(output, error);
+    if (quarantine.empty()) {
+        return false;
+    }
+
+    (void)std::filesystem::remove_all(quarantine, error);
+    return !error;
+}
+
 inline bool cleanup_owned(OwnedOutputs &outputs, std::error_code &first_error) noexcept
 {
     bool complete = true;

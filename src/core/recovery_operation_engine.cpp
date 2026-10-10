@@ -88,43 +88,55 @@ std::filesystem::path backup_path_for(const std::filesystem::path &destination,
     return {};
 }
 
-bool rollback_destination(const std::filesystem::path &destination,
-                          const std::filesystem::path &backup,
-                          std::string &detail)
+bool stage_destination(const std::filesystem::path &destination,
+                       const std::filesystem::path &backup,
+                       destination_ownership::OwnedOutput &staged,
+                       std::error_code &error)
 {
-    std::error_code inspect_error;
-    if (path_present(destination, inspect_error)) {
-        detail = "The destination changed after staging; Files retained the staged previous destination at “" +
-                 backup.string() + "” rather than overwrite another writer's data.";
+    const destination_ownership::Identity identity =
+        destination_ownership::identity_for(destination, error);
+    if (error) {
         return false;
     }
-    if (inspect_error) {
-        detail = "The destination could not be inspected before rollback: " + inspect_error.message();
+    if (!destination_ownership::rename_no_replace(destination, backup, error)) {
         return false;
     }
 
+    staged = destination_ownership::OwnedOutput{backup, identity};
+    if (!destination_ownership::same_object(backup, identity, error)) {
+        if (!error) {
+            error = std::make_error_code(std::errc::state_not_recoverable);
+        }
+        return false;
+    }
+    return true;
+}
+
+bool rollback_destination(const std::filesystem::path &destination,
+                          const destination_ownership::OwnedOutput &staged,
+                          std::string &detail)
+{
     std::error_code restore_error;
-    (void)destination_ownership::rename_no_replace(backup, destination, restore_error);
-    if (restore_error) {
-        detail = "The previous destination could not be restored: " + restore_error.message();
+    if (!destination_ownership::restore_owned(staged, destination, restore_error)) {
+        detail = "The previous destination could not be restored safely from “" +
+                 staged.path.string() + "”: " + restore_error.message();
         return false;
     }
     return true;
 }
 
 OperationResult cleanup_replaced_destination(const std::filesystem::path &destination,
-                                             const std::filesystem::path &backup,
+                                             const destination_ownership::OwnedOutput &staged,
                                              std::string success_message)
 {
     std::error_code cleanup_error;
-    (void)std::filesystem::remove_all(backup, cleanup_error);
-    if (cleanup_error) {
+    if (!destination_ownership::remove_owned_tree(staged, cleanup_error)) {
         return result(OperationStatus::VerificationFailure,
                       OperationPhase::Verify,
                       destination,
                       std::move(success_message) +
-                          " The previous destination was retained at “" + backup.string() +
-                          "” because cleanup failed: " + cleanup_error.message(),
+                          " The previous destination was retained at “" + staged.path.string() +
+                          "” because ownership-safe cleanup failed: " + cleanup_error.message(),
                       true);
     }
     return result(OperationStatus::Success,
@@ -171,8 +183,8 @@ OperationResult RecoveryOperationEngine::replace_copy(
                       "A safe replacement staging path could not be reserved.");
     }
 
-    (void)destination_ownership::rename_no_replace(destination, backup, error);
-    if (error) {
+    destination_ownership::OwnedOutput staged;
+    if (!stage_destination(destination, backup, staged, error)) {
         return result(OperationEngine::status_for_error(error),
                       OperationPhase::Execute,
                       destination,
@@ -182,11 +194,11 @@ OperationResult RecoveryOperationEngine::replace_copy(
     OperationResult replacement = ordinary.copy_item(source, destination_parent);
     if (replacement.ok()) {
         return cleanup_replaced_destination(
-            destination, backup, "Replaced " + quoted_name(destination) + ".");
+            destination, staged, "Replaced " + quoted_name(destination) + ".");
     }
 
     std::string rollback_detail;
-    if (!rollback_destination(destination, backup, rollback_detail)) {
+    if (!rollback_destination(destination, staged, rollback_detail)) {
         return result(OperationStatus::VerificationFailure,
                       OperationPhase::Verify,
                       destination,
@@ -232,8 +244,8 @@ OperationResult RecoveryOperationEngine::replace_move(
                       "A safe replacement staging path could not be reserved.");
     }
 
-    (void)destination_ownership::rename_no_replace(destination, backup, error);
-    if (error) {
+    destination_ownership::OwnedOutput staged;
+    if (!stage_destination(destination, backup, staged, error)) {
         return result(OperationEngine::status_for_error(error),
                       OperationPhase::Execute,
                       destination,
@@ -243,14 +255,14 @@ OperationResult RecoveryOperationEngine::replace_move(
     OperationResult replacement = ordinary.move_item(source, destination_parent);
     if (replacement.ok()) {
         return cleanup_replaced_destination(
-            destination, backup, "Replaced " + quoted_name(destination) + " by moving the selected item.");
+            destination, staged, "Replaced " + quoted_name(destination) + " by moving the selected item.");
     }
 
     std::error_code source_error;
     const bool source_still_exists = path_present(source, source_error);
     if (!source_error && source_still_exists) {
         std::string rollback_detail;
-        if (rollback_destination(destination, backup, rollback_detail)) {
+        if (rollback_destination(destination, staged, rollback_detail)) {
             replacement.destination = destination;
             replacement.changed = false;
             if (!replacement.message.empty()) {
@@ -390,6 +402,7 @@ OperationResult RecoveryOperationEngine::restore_item(
     }
 
     std::filesystem::path backup;
+    destination_ownership::OwnedOutput staged;
     if (destination_exists) {
         backup = backup_path_for(original_path, error);
         if (error || backup.empty()) {
@@ -399,8 +412,7 @@ OperationResult RecoveryOperationEngine::restore_item(
                           original_path,
                           "A safe restore replacement staging path could not be reserved.");
         }
-        (void)destination_ownership::rename_no_replace(original_path, backup, error);
-        if (error) {
+        if (!stage_destination(original_path, backup, staged, error)) {
             g_object_unref(trash_file);
             return result(OperationEngine::status_for_error(error),
                           OperationPhase::Execute,
@@ -433,7 +445,7 @@ OperationResult RecoveryOperationEngine::restore_item(
             const bool trash_still_exists = g_file_query_exists(trash_file, nullptr) != FALSE;
             if (!error && !destination_now_exists && trash_still_exists) {
                 std::string rollback_detail;
-                if (!rollback_destination(original_path, backup, rollback_detail)) {
+                if (!rollback_destination(original_path, staged, rollback_detail)) {
                     g_object_unref(trash_file);
                     return result(OperationStatus::VerificationFailure,
                                   OperationPhase::Verify,
@@ -473,7 +485,7 @@ OperationResult RecoveryOperationEngine::restore_item(
 
     if (!backup.empty()) {
         return cleanup_replaced_destination(
-            original_path, backup, "Restored and replaced " + quoted_name(original_path) + ".");
+            original_path, staged, "Restored and replaced " + quoted_name(original_path) + ".");
     }
 
     return result(OperationStatus::Success,

@@ -90,7 +90,7 @@ It currently provides:
 - deterministic Keep Both naming such as `name (copy).ext`, `name (copy 2).ext` and subsequent unique names while preserving file extensions;
 - destination names are claimed at the mutation boundary with no-replace semantics, so a competing writer is reported as a conflict rather than overwritten after preflight;
 - failed or cancelled transfers remove only filesystem objects whose recorded identity still belongs to that operation, leaving competing-writer data intact;
-- replacement rollback restores the staged previous destination only while the destination remains unoccupied, retaining staged data if another writer has claimed the name;
+- replacement staging records the previous destination identity; rollback and successful cleanup atomically quarantine and verify that staged object before restoring or removing it, retaining a competitor replacement rather than acting on the name alone;
 - explicit **Replace** handling that stages the existing destination rather than deleting it first;
 - replacement staging that verifies the replacement, restores the previous destination on a safe failure path and retains staged data rather than guessing after an uncertain move;
 - same-filesystem moves through filesystem rename semantics, with copy-then-remove fallback for cross-volume moves;
@@ -100,7 +100,8 @@ It currently provides:
 - explicit verification failure when copied contents exist but supported permission/timestamp metadata could not be preserved, rather than claiming perfect preservation;
 - byte and item progress for single-item Copy/Move transfers, surfaced in the header without blocking the GTK main loop;
 - explicit transfer cancellation, checked during chunked file copy and directory traversal, with partial copy destinations removed where cleanup is safe;
-- cross-volume move cancellation before source removal so cancellation does not silently discard the source;
+- cross-volume moves verify the complete copied output set, atomically quarantine the unchanged source, verify the output set again and only then remove the quarantined source;
+- cancellation remains effective during copy and traversal; a fully copied, metadata-preserved and identity-verified destination is the cross-volume move commit point and is reported as completed rather than as a late cancellation with duplicate data;
 - deterministic **Move to Trash** for one selected native item, available from the Trash action and the `Delete` key;
 - **Restore** from the Trash namespace to the original local path when the platform exposes the original location;
 - explicit restore-collision handling with staged replacement rather than deleting the existing destination first;
