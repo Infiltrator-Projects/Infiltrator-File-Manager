@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "transfer_operation_engine.hpp"
+#include "destination_ownership.hpp"
 
 #include <array>
+#include <cerrno>
 #include <fstream>
 #include <string>
 #include <utility>
@@ -155,6 +157,7 @@ OperationResult cancelled_result(const std::filesystem::path &destination,
 bool copy_regular_file(const std::filesystem::path &source,
                        const std::filesystem::path &destination,
                        TransferControl *control,
+                       destination_ownership::OwnedOutputs &owned,
                        std::error_code &error)
 {
     error.clear();
@@ -163,24 +166,38 @@ bool copy_regular_file(const std::filesystem::path &source,
         error = std::make_error_code(std::errc::io_error);
         return false;
     }
-    std::ofstream output(destination, std::ios::binary | std::ios::trunc);
-    if (!output) {
-        error = std::make_error_code(std::errc::io_error);
+    const int output = destination_ownership::open_exclusive(destination, error);
+    if (output < 0) {
+        return false;
+    }
+    if (!destination_ownership::record_fd(destination, output, owned, error)) {
+        (void)::close(output);
         return false;
     }
 
     std::array<char, 1024 * 1024> buffer{};
     while (input) {
         if (control != nullptr && control->cancelled()) {
+            (void)::close(output);
             return false;
         }
         input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
         const std::streamsize count = input.gcount();
         if (count > 0) {
-            output.write(buffer.data(), count);
-            if (!output) {
-                error = std::make_error_code(std::errc::io_error);
-                return false;
+            std::size_t written = 0;
+            const std::size_t total = static_cast<std::size_t>(count);
+            while (written < total) {
+                const ssize_t step = ::write(output, buffer.data() + written, total - written);
+                if (step <= 0) {
+                    if (step < 0 && errno == EINTR) {
+                        continue;
+                    }
+                    error = step < 0 ? std::error_code(errno, std::generic_category())
+                                     : std::make_error_code(std::errc::io_error);
+                    (void)::close(output);
+                    return false;
+                }
+                written += static_cast<std::size_t>(step);
             }
             if (control != nullptr) {
                 control->add_bytes(static_cast<std::uintmax_t>(count));
@@ -189,11 +206,16 @@ bool copy_regular_file(const std::filesystem::path &source,
     }
     if (!input.eof()) {
         error = std::make_error_code(std::errc::io_error);
+        (void)::close(output);
         return false;
     }
-    output.flush();
-    if (!output) {
-        error = std::make_error_code(std::errc::io_error);
+    if (::fsync(output) != 0) {
+        error = std::error_code(errno, std::generic_category());
+        (void)::close(output);
+        return false;
+    }
+    if (::close(output) != 0) {
+        error = std::error_code(errno, std::generic_category());
         return false;
     }
     if (control != nullptr) {
@@ -238,7 +260,6 @@ OperationResult metadata_failure(const std::filesystem::path &destination,
                        error.message(),
                    true);
 }
-
 OperationResult copy_exact(const std::filesystem::path &source,
                            const std::filesystem::path &destination,
                            TransferControl *control)
@@ -269,27 +290,34 @@ OperationResult copy_exact(const std::filesystem::path &source,
 
     std::vector<std::pair<std::filesystem::path, std::filesystem::path>> file_metadata;
     std::vector<std::pair<std::filesystem::path, std::filesystem::path>> directory_metadata;
+    destination_ownership::OwnedOutputs owned;
 
     if (std::filesystem::is_symlink(source_status)) {
         const auto target = std::filesystem::read_symlink(source, error);
         if (!error) {
             std::filesystem::create_symlink(target, destination, error);
         }
+        if (!error) {
+            (void)destination_ownership::record(destination, owned, error);
+        }
         if (!error && control != nullptr) {
             control->add_item();
         }
     } else if (std::filesystem::is_regular_file(source_status)) {
-        if (!copy_regular_file(source, destination, control, error)) {
+        if (!copy_regular_file(source, destination, control, owned, error)) {
             if (control != nullptr && control->cancelled()) {
                 std::error_code cleanup_error;
-                std::filesystem::remove(destination, cleanup_error);
-                return cancelled_result(destination, static_cast<bool>(cleanup_error));
+                const bool cleaned = destination_ownership::cleanup_owned(owned, cleanup_error);
+                return cancelled_result(destination, !cleaned);
             }
         } else {
             file_metadata.emplace_back(source, destination);
         }
     } else if (std::filesystem::is_directory(source_status)) {
         std::filesystem::create_directory(destination, error);
+        if (!error) {
+            (void)destination_ownership::record(destination, owned, error);
+        }
         if (!error) {
             directory_metadata.emplace_back(source, destination);
         }
@@ -301,8 +329,8 @@ OperationResult copy_exact(const std::filesystem::path &source,
              iterator.increment(error)) {
             if (control != nullptr && control->cancelled()) {
                 std::error_code cleanup_error;
-                std::filesystem::remove_all(destination, cleanup_error);
-                return cancelled_result(destination, static_cast<bool>(cleanup_error));
+                const bool cleaned = destination_ownership::cleanup_owned(owned, cleanup_error);
+                return cancelled_result(destination, !cleaned);
             }
 
             const auto relative = iterator->path().lexically_relative(source);
@@ -314,6 +342,9 @@ OperationResult copy_exact(const std::filesystem::path &source,
             if (std::filesystem::is_directory(entry_status)) {
                 std::filesystem::create_directory(target, error);
                 if (!error) {
+                    (void)destination_ownership::record(target, owned, error);
+                }
+                if (!error) {
                     directory_metadata.emplace_back(iterator->path(), target);
                 }
                 if (!error && control != nullptr) {
@@ -324,11 +355,14 @@ OperationResult copy_exact(const std::filesystem::path &source,
                 if (!error) {
                     std::filesystem::create_symlink(link_target, target, error);
                 }
+                if (!error) {
+                    (void)destination_ownership::record(target, owned, error);
+                }
                 if (!error && control != nullptr) {
                     control->add_item();
                 }
             } else if (std::filesystem::is_regular_file(entry_status)) {
-                if (!copy_regular_file(iterator->path(), target, control, error)) {
+                if (!copy_regular_file(iterator->path(), target, control, owned, error)) {
                     if (control != nullptr && control->cancelled()) {
                         std::error_code cleanup_error;
                         std::filesystem::remove_all(destination, cleanup_error);
@@ -351,18 +385,19 @@ OperationResult copy_exact(const std::filesystem::path &source,
     if (error) {
         const auto status = OperationEngine::status_for_error(error);
         std::error_code cleanup_error;
-        std::filesystem::remove_all(destination, cleanup_error);
+        const bool cleaned = destination_ownership::cleanup_owned(owned, cleanup_error);
         return failure(status,
                        OperationPhase::Execute,
                        destination,
-                       "The transfer failed: " + error.message(),
-                       static_cast<bool>(cleanup_error));
+                       "The transfer failed: " + error.message() +
+                           (cleaned ? std::string{} : " Non-owned destination content was left in place."),
+                       !cleaned);
     }
 
     if (control != nullptr && control->cancelled()) {
         std::error_code cleanup_error;
-        std::filesystem::remove_all(destination, cleanup_error);
-        return cancelled_result(destination, static_cast<bool>(cleanup_error));
+        const bool cleaned = destination_ownership::cleanup_owned(owned, cleanup_error);
+        return cancelled_result(destination, !cleaned);
     }
 
     for (const auto &entry : file_metadata) {
@@ -632,7 +667,7 @@ OperationResult TransferOperationEngine::move_item(const std::filesystem::path &
     }
     error.clear();
 
-    std::filesystem::rename(source, decision.destination, error);
+    (void)destination_ownership::rename_no_replace(source, decision.destination, error);
     if (!error) {
         if (control != nullptr) {
             control->add_bytes(bytes);
