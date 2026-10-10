@@ -1,8 +1,8 @@
 # Infiltrator File Manager — Common Integration and Ownership Ledger
 
 **Date:** 6 October 2026\
-**Pinned Common:** 1.19.40\
-**Pinned commit:** `e0cde97b684b6861134be88be5e2126afa11548e`
+**Pinned Common:** 1.19.41\
+**Pinned commit:** `b0387b7ab5d71cda60748e2506b85cdc0e6b5e8b`
 
 Common is one of Infiltrator File Manager's principal architectural advantages. Files must not treat Common as a token submodule used only for colours. It is the first place to look whenever Files needs a product-neutral mechanism already proven elsewhere in the Infiltrator family.
 
@@ -47,8 +47,8 @@ Files pins an exact reviewed Common release and commit. It must not silently flo
 Current requirement:
 
 ```text
-Common version: 1.19.40
-Commit:         e0cde97b684b6861134be88be5e2126afa11548e
+Common version: 1.19.41
+Commit:         b0387b7ab5d71cda60748e2506b85cdc0e6b5e8b
 ```
 
 A Common update is an explicit Files change with build/test qualification. A same-version but different Common commit must not build in a normal Git checkout.

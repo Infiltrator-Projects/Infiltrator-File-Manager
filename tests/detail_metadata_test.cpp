@@ -226,13 +226,32 @@ int main()
     g_setenv("LANGUAGE", "zh_TW", TRUE);
     const bool chinese_language_ok =
         detail_modified_text(file, date_provider) == "中文日期 申初";
+    std::strcpy(policy.clock_mode, "standard-12");
+    policy.show_seconds = false;
+    const bool saved_twelve = infiltratr_temporal_posix_policy_save(&policy) == 0;
+    const bool twelve_language_ok = saved_twelve &&
+        detail_modified_text(file, date_provider) == "中文日期 下午3:30";
     g_setenv("LANGUAGE", "en_AU", TRUE);
     std::strcpy(policy.calendar, "roman");
+    std::strcpy(policy.clock_mode, "chinese-time");
+    policy.show_seconds = true;
     const bool saved_unavailable = infiltratr_temporal_posix_policy_save(&policy) == 0;
     const bool unavailable_ok = saved_unavailable &&
         detail_modified_text(file, date_provider) == "— Shēn, first half";
+    bool edo_ok = true;
+    policy.location_configured = true;
+    policy.latitude = 0.0;
+    policy.longitude = 0.0;
+    policy.show_seconds = false;
+    g_file_info_set_attribute_uint64(file, G_FILE_ATTRIBUTE_TIME_MODIFIED, 946728000U);
+    for (const char *mode : {"japanese-temporal", "japanese-temporal-early"}) {
+        std::strcpy(policy.clock_mode, mode);
+        edo_ok = edo_ok && infiltratr_temporal_posix_policy_save(&policy) == 0 &&
+            detail_modified_text(file, date_provider) == "— Mi · 四 bells";
+    }
     infiltratr_temporal_posix_date_provider_free(date_provider);
-    if (!coarse_ok || !fine_ok || !chinese_language_ok || !unavailable_ok) {
+    if (!coarse_ok || !fine_ok || !chinese_language_ok || !twelve_language_ok ||
+        !unavailable_ok || !edo_ok) {
         g_free(config_home);
         g_object_unref(file);
         return 17;
