@@ -411,7 +411,9 @@ OperationResult copy_exact(const std::filesystem::path &source,
         }
     }
 
-    if (!path_present(destination, error) || error) {
+    const bool destination_is_owned =
+        !owned.empty() && destination_ownership::same_object(destination, owned.front().identity, error);
+    if (!destination_is_owned || error) {
         return failure(OperationStatus::VerificationFailure,
                        OperationPhase::Verify,
                        destination,
@@ -666,9 +668,25 @@ OperationResult TransferOperationEngine::move_item(const std::filesystem::path &
         }
     }
     error.clear();
+    const auto moved_identity = destination_ownership::identity_for(source, error);
+    if (error) {
+        return failure(OperationEngine::status_for_error(error),
+                       OperationPhase::Preflight,
+                       decision.destination,
+                       "The selected item identity could not be inspected.");
+    }
 
     (void)destination_ownership::rename_no_replace(source, decision.destination, error);
     if (!error) {
+        const bool destination_is_source =
+            destination_ownership::same_object(decision.destination, moved_identity, error);
+        if (error || !destination_is_source) {
+            return failure(OperationStatus::VerificationFailure,
+                           OperationPhase::Verify,
+                           decision.destination,
+                           "The move completed but the destination identity could not be verified.",
+                           true);
+        }
         if (control != nullptr) {
             control->add_bytes(bytes);
             for (std::uintmax_t index = 0; index < items; ++index) {
