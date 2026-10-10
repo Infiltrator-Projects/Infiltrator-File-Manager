@@ -88,6 +88,9 @@ It currently provides:
 - aggregate byte/item progress and safe-boundary cancellation for multi-item Copy/Move batches;
 - explicit single-item destination-conflict choices for **Skip**, **Keep Both** and **Replace** rather than implicit overwrite behaviour;
 - deterministic Keep Both naming such as `name (copy).ext`, `name (copy 2).ext` and subsequent unique names while preserving file extensions;
+- destination names are claimed at the mutation boundary with no-replace semantics, so a competing writer is reported as a conflict rather than overwritten after preflight;
+- failed or cancelled transfers remove only filesystem objects whose recorded identity still belongs to that operation, leaving competing-writer data intact;
+- replacement rollback restores the staged previous destination only while the destination remains unoccupied, retaining staged data if another writer has claimed the name;
 - explicit **Replace** handling that stages the existing destination rather than deleting it first;
 - replacement staging that verifies the replacement, restores the previous destination on a safe failure path and retains staged data rather than guessing after an uncertain move;
 - same-filesystem moves through filesystem rename semantics, with copy-then-remove fallback for cross-volume moves;
