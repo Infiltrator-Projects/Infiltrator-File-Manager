@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "revision": 19,
+  "revision": 20,
   "mode": "WORK",
-  "updated_at": "2026-10-10T13:47:35.244Z",
+  "updated_at": "2026-10-10T13:50:01.289Z",
   "baseline": {
     "main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
     "version": "0.1.16",
@@ -11,7 +11,7 @@
   },
   "stroke": {
     "id": "files-20261010-destination-ownership",
-    "phase": "FIXING",
+    "phase": "INTEGRATE_READY",
     "package": {
       "title": "Protect destination ownership during transfers and replacement rollback",
       "golden_journeys": [
@@ -46,7 +46,7 @@
       "base_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
       "head_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
       "draft": false,
-      "status": "FIXING: complete formal hard set implemented on f5f2b5de; hosted exact-head Release CI 38057074480 queued.",
+      "status": "INTEGRATE_READY: complete formal hard set resolved on f5f2b5de; all review threads resolved; exact-head Verify 38057074480 passed 10/10 tests.",
       "changed_files": [
         "README.md",
         "src/core/destination_ownership.hpp",
@@ -65,7 +65,8 @@
         "Replacement/restore staging records identity; rollback and cleanup quarantine and verify that staged object before restoring or removing it.",
         "Release-effective deterministic tests cover complete child proof, staged-backup replacement and real /tmp-to-/dev/shm cross-volume move.",
         "Local direct g++ Release-equivalent warning builds and destination/operation/transfer tests passed; full CMake unavailable locally.",
-        "Hosted exact-head Verify run 38057074480 queued for f5f2b5de58abb0d65d0a8814b79706536922e7a3."
+        "Exact-head Verify run 38057074480 succeeded for f5f2b5de58abb0d65d0a8814b79706536922e7a3; build passed and 10/10 tests passed.",
+        "All six formal-review threads have exact-head replies and are resolved; total unresolved thread count is zero."
       ]
     },
     "review": {
@@ -91,8 +92,10 @@
           "PRRT_kwDOU9Z1nc6rETrS",
           "PRRT_kwDOU9Z1nc6rEXUg"
         ],
-        "status": "addressed_pending_ci",
-        "addressed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3"
+        "status": "resolved",
+        "addressed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
+        "resolved_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
+        "resolution": "One TransferOperationEngine move path verifies same-volume moved identity; cross-volume uses copied identities and source quarantine. Real /tmp→/dev/shm Release test passed."
       },
       {
         "id": "directory-copy-complete-identity",
@@ -105,8 +108,10 @@
         "threads": [
           "PRRT_kwDOU9Z1nc6rEXUj"
         ],
-        "status": "addressed_pending_ci",
-        "addressed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3"
+        "status": "resolved",
+        "addressed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
+        "resolved_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
+        "resolution": "verify_all checks every recorded file/link/directory before success and again before source deletion; deterministic replaced-child proof test passed."
       },
       {
         "id": "late-cross-volume-cancellation",
@@ -119,8 +124,10 @@
         "threads": [
           "PRRT_kwDOU9Z1nc6rETrV"
         ],
-        "status": "addressed_pending_ci",
-        "addressed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3"
+        "status": "resolved",
+        "addressed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
+        "resolved_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
+        "resolution": "Verified copy completion is the documented commit point; the post-copy Cancelled branch was removed, while in-copy cancellation and owned cleanup remain."
       },
       {
         "id": "per-file-fsync-performance",
@@ -133,8 +140,10 @@
         "threads": [
           "PRRT_kwDOU9Z1nc6rETrZ"
         ],
-        "status": "addressed_pending_ci",
-        "addressed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3"
+        "status": "resolved",
+        "addressed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
+        "resolved_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
+        "resolution": "Unconditional per-file fsync removed; checked normal close semantics restored without claiming incomplete durability."
       },
       {
         "id": "staged-backup-ownership",
@@ -147,19 +156,17 @@
         "threads": [
           "PRRT_kwDOU9Z1nc6rEXUn"
         ],
-        "status": "addressed_pending_ci",
-        "addressed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3"
+        "status": "resolved",
+        "addressed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
+        "resolved_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
+        "resolution": "Staged identity is recorded; rollback and cleanup atomically quarantine and verify before restoring/removing. Deterministic backup replacement tests passed."
       }
     ],
     "integration": null,
     "release": null,
     "blocker": null
   },
-  "lease": {
-    "role": "Fixer",
-    "token": "fixer-destination-ownership-20261010T133930780Z",
-    "expires_at": "2026-10-10T14:24:30.780Z"
-  },
+  "lease": null,
   "heartbeats": {
     "Architect": {
       "at": "2026-10-10T12:55:59.134Z",
@@ -190,18 +197,18 @@
       "next_action": "Builder must finish the complete five-thread hard set on PR #10 and transition to REVIEW_READY; Reviewer must then submit a formal exact-head review before any Integrator action."
     },
     "Fixer": {
-      "at": "2026-10-10T13:47:35.244Z",
-      "status": "Complete five-finding set implemented on f5f2b5de; exact-head CI queued",
-      "observed_revision": 18,
+      "at": "2026-10-10T13:50:01.289Z",
+      "status": "INTEGRATE_READY; complete hard set resolved, exact-head CI green, zero unresolved threads",
+      "observed_revision": 19,
       "observed_head": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
-      "next_action": "Wait for Verify 38057074480; on success reply/resolve all six findings with exact evidence, inspect the final diff, mark INTEGRATE_READY and release the lease."
+      "next_action": "Integrator must independently inspect the post-review delta, confirm exact-head CI and zero unresolved hard threads, then integrate without optional churn."
     }
   },
   "last_transition": {
     "role": "Fixer",
-    "from": "FIX_REQUIRED",
-    "to": "FIXING",
-    "reason": "Claimed formal review 5479122650 complete five-finding set on PR #10 exact head d6b1ba6."
+    "from": "FIXING",
+    "to": "INTEGRATE_READY",
+    "reason": "All five formal hard findings corrected on f5f2b5de, six threads resolved, and exact-head Verify 38057074480 passed build plus 10/10 tests."
   },
   "health": {
     "nonce": "files-swarm-20261010-1136",
