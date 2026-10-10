@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "revision": 10,
+  "revision": 11,
   "mode": "WORK",
-  "updated_at": "2026-10-10T12:25:57.300Z",
+  "updated_at": "2026-10-10T12:36:23.544Z",
   "baseline": {
     "main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
     "version": "0.1.16",
@@ -105,11 +105,11 @@
       "next_action": "Foreground HAL must verify all five independent receipts before switching mode to WORK."
     },
     "Fixer": {
-      "at": "2026-10-10T12:07:05.496Z",
-      "status": "startup communication check verified",
-      "observed_revision": 4,
-      "observed_head": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
-      "next_action": "Integrator must verify Fixer comment 6097314262 and append the final ordered receipt."
+      "at": "2026-10-10T12:36:23.544Z",
+      "status": "BUILDING under live Builder lease; five unresolved candidate-local review threads confirmed read-only",
+      "observed_revision": 10,
+      "observed_head": "b4a48717cdcae598a6dab92ec538700769c774d7",
+      "next_action": "Builder must retain the same PR, reconcile head b4a48717 into state, close the directory-claim, atomic cleanup, Release-effective test, owned-partial rollback and success-identity findings, rerun exact-head CI, then transition to REVIEW_READY."
     }
   },
   "last_transition": {
