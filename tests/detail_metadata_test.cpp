@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "../src/ui/detail_metadata.hpp"
 
-#include <infiltratr/core.h>
 #include <infiltratr/temporal.h>
 #include <infiltratr/temporal_posix.h>
 
@@ -62,7 +61,7 @@ int main()
         g_object_unref(file);
         return 5;
     }
-    infiltratr_copy_string(policy.clock_mode, sizeof(policy.clock_mode), "standard-12");
+    std::strcpy(policy.clock_mode, "standard-12");
     policy.show_seconds = false;
     if (infiltratr_temporal_posix_policy_save(&policy) != 0) {
         g_free(config_home);
