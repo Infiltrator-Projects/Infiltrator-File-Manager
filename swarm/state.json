@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "revision": 16,
+  "revision": 17,
   "mode": "WORK",
-  "updated_at": "2026-10-10T13:31:01.291Z",
+  "updated_at": "2026-10-10T13:34:02.108Z",
   "baseline": {
     "main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
     "version": "0.1.16",
@@ -11,7 +11,7 @@
   },
   "stroke": {
     "id": "files-20261010-destination-ownership",
-    "phase": "REVIEWING",
+    "phase": "FIX_REQUIRED",
     "package": {
       "title": "Protect destination ownership during transfers and replacement rollback",
       "golden_journeys": [
@@ -46,7 +46,7 @@
       "base_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
       "head_sha": "d6b1ba6224f1b80079a2de497c5f0993a4819447",
       "draft": false,
-      "status": "REVIEW_READY: complete five-thread hard set corrected; all inline threads resolved with exact evidence; exact-head Release CI green.",
+      "status": "FIX_REQUIRED: formal exact-head Reviewer COMMENT verdict records five hard findings; six unresolved exact-head threads require correction.",
       "changed_files": [
         "CMakeLists.txt",
         "README.md",
@@ -67,17 +67,84 @@
         "All five automated review threads have evidence-backed replies and are resolved."
       ]
     },
-    "review": null,
-    "hard_findings": [],
+    "review": {
+      "id": 5479122650,
+      "node_id": "PRR_kwDOU9Z1nc8AAAABRpTG2g",
+      "url": "https://github.com/Infiltrator-Projects/Infiltrator-File-Manager/pull/10#pullrequestreview-5479122650",
+      "sha": "d6b1ba6224f1b80079a2de497c5f0993a4819447",
+      "verdict": "CHANGES_REQUIRED",
+      "event": "COMMENT",
+      "submitted_at": "2026-10-10T13:33:35Z",
+      "request_changes_rejection": "Review Can not request changes on your own pull request"
+    },
+    "hard_findings": [
+      {
+        "id": "operation-move-identity",
+        "severity": "P1",
+        "paths": [
+          "src/core/operation_engine.cpp"
+        ],
+        "finding": "Same-volume move accepts pathname presence rather than the captured source identity; cross-volume move deletes the source then compares the new copy's device/inode to the old source identity, so genuine cross-volume success returns VerificationFailure.",
+        "required": "Verify same-volume destination against moved_identity. For cross-volume moves, preserve and verify the copied destination identity before source removal. Add true cross-volume and same-volume replacement-race Release tests.",
+        "threads": [
+          "PRRT_kwDOU9Z1nc6rETrS",
+          "PRRT_kwDOU9Z1nc6rEXUg"
+        ]
+      },
+      {
+        "id": "directory-copy-complete-identity",
+        "severity": "P1",
+        "paths": [
+          "src/core/transfer_operation_engine.cpp"
+        ],
+        "finding": "copy_exact records every output but verifies only owned.front(); a replaced child can be accepted while cross-volume move deletes the source.",
+        "required": "Verify the complete owned output set, or provide equivalent full-copy proof, before success/source removal. Add a deterministic child-replacement Release test.",
+        "threads": [
+          "PRRT_kwDOU9Z1nc6rEXUj"
+        ]
+      },
+      {
+        "id": "late-cross-volume-cancellation",
+        "severity": "P2",
+        "paths": [
+          "src/core/transfer_operation_engine.cpp"
+        ],
+        "finding": "Cancellation after copy_exact succeeds leaves both source and completed destination but returns Cancelled.",
+        "required": "Safely clean the owned destination or make successful copy_exact completion the documented commit point and return truthful completion. Add a post-copy cancellation test.",
+        "threads": [
+          "PRRT_kwDOU9Z1nc6rETrV"
+        ]
+      },
+      {
+        "id": "per-file-fsync-performance",
+        "severity": "P2",
+        "paths": [
+          "src/core/transfer_operation_engine.cpp"
+        ],
+        "finding": "Every copied regular file forces fsync, serializing large directory copies without complete directory durability.",
+        "required": "Restore normal close semantics or implement a measured coherent durability policy; qualify large-tree behavior.",
+        "threads": [
+          "PRRT_kwDOU9Z1nc6rETrZ"
+        ]
+      },
+      {
+        "id": "staged-backup-ownership",
+        "severity": "P1",
+        "paths": [
+          "src/core/recovery_operation_engine.cpp"
+        ],
+        "finding": "Replacement and restore staging do not record the backup identity; rollback can restore and cleanup can remove_all a competitor replacement at the hidden backup pathname.",
+        "required": "Record the staged object's identity and use identity-safe quarantine/verification before rollback or deletion. Add rollback and successful-cleanup replacement-race Release tests.",
+        "threads": [
+          "PRRT_kwDOU9Z1nc6rEXUn"
+        ]
+      }
+    ],
     "integration": null,
     "release": null,
     "blocker": null
   },
-  "lease": {
-    "role": "Reviewer",
-    "token": "reviewer-destination-ownership-20261010T133101Z",
-    "expires_at": "2026-10-10T14:16:01.291Z"
-  },
+  "lease": null,
   "heartbeats": {
     "Architect": {
       "at": "2026-10-10T12:55:59.134Z",
@@ -94,11 +161,11 @@
       "next_action": "Reviewer must perform a fresh broad independent review of exact head d6b1ba6224f1b80079a2de497c5f0993a4819447 and submit the formal verdict."
     },
     "Reviewer": {
-      "at": "2026-10-10T13:31:01.291Z",
-      "status": "Claimed exact-head independent review for PR #10",
-      "observed_revision": 15,
+      "at": "2026-10-10T13:34:02.108Z",
+      "status": "Formal exact-head review submitted; five hard findings require Fixer correction",
+      "observed_revision": 16,
       "observed_head": "d6b1ba6224f1b80079a2de497c5f0993a4819447",
-      "next_action": "Review the full candidate and surrounding invariants, reconcile the three new exact-head automated review threads, run/verify exact-head evidence, and submit a formal review."
+      "next_action": "Fixer must claim PR #10, correct the complete five-finding hard set on the same branch, add Release-effective failure/cancellation/race tests, resolve all six threads with evidence, and rerun exact-head CI."
     },
     "Integrator": {
       "at": "2026-10-10T12:52:05.260Z",
@@ -117,9 +184,9 @@
   },
   "last_transition": {
     "role": "Reviewer",
-    "from": "REVIEW_READY",
-    "to": "REVIEWING",
-    "reason": "Claimed the complete exact-head candidate for independent review after Builder handoff and green Release CI."
+    "from": "REVIEWING",
+    "to": "FIX_REQUIRED",
+    "reason": "Formal review 5479122650 on exact head d6b1ba6 found five hard correctness/performance findings across move identity, complete tree verification, cancellation, fsync policy and staged-backup ownership."
   },
   "health": {
     "nonce": "files-swarm-20261010-1136",
