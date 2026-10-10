@@ -486,6 +486,14 @@ OperationResult OperationEngine::rename_item(const std::filesystem::path &source
                        "An item named " + quoted_name(destination) + " already exists.");
     }
 
+    const auto moved_identity = destination_ownership::identity_for(source, error);
+    if (error) {
+        return failure(status_for_error(error),
+                       OperationPhase::Preflight,
+                       destination,
+                       "The selected item identity could not be inspected.");
+    }
+
     (void)destination_ownership::rename_no_replace(source, destination, error);
     if (error) {
         const OperationStatus status = status_for_error(error);
@@ -504,8 +512,9 @@ OperationResult OperationEngine::rename_item(const std::filesystem::path &source
         return failure(status, OperationPhase::Execute, destination, std::move(message));
     }
 
-    const bool destination_now_exists = path_present(destination, error);
-    if (error || !destination_now_exists) {
+    const bool destination_is_source =
+        destination_ownership::same_object(destination, moved_identity, error);
+    if (error || !destination_is_source) {
         return failure(OperationStatus::VerificationFailure,
                        OperationPhase::Verify,
                        destination,
@@ -585,6 +594,14 @@ OperationResult OperationEngine::move_item(const std::filesystem::path &source,
                        "The source and destination could not be resolved safely.");
     }
 
+    const auto moved_identity = destination_ownership::identity_for(source, error);
+    if (error) {
+        return failure(status_for_error(error),
+                       OperationPhase::Preflight,
+                       destination,
+                       "The selected item identity could not be inspected.");
+    }
+
     (void)destination_ownership::rename_no_replace(source, destination, error);
     if (!error) {
         const bool destination_now_exists = path_present(destination, error);
@@ -640,8 +657,9 @@ OperationResult OperationEngine::move_item(const std::filesystem::path &source,
                        true);
     }
 
-    const bool destination_now_exists = path_present(destination, error);
-    if (error || !destination_now_exists) {
+    const bool destination_is_source =
+        destination_ownership::same_object(destination, moved_identity, error);
+    if (error || !destination_is_source) {
         return failure(OperationStatus::VerificationFailure,
                        OperationPhase::Verify,
                        destination,
