@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "recovery_operation_engine.hpp"
+#include "destination_ownership.hpp"
 
 #include <gio/gio.h>
 
@@ -91,15 +92,19 @@ bool rollback_destination(const std::filesystem::path &destination,
                           const std::filesystem::path &backup,
                           std::string &detail)
 {
-    std::error_code remove_error;
-    (void)std::filesystem::remove_all(destination, remove_error);
-    if (remove_error) {
-        detail = "The partial replacement could not be removed: " + remove_error.message();
+    std::error_code inspect_error;
+    if (path_present(destination, inspect_error)) {
+        detail = "The destination changed after staging; Files retained the staged previous destination at “" +
+                 backup.string() + "” rather than overwrite another writer's data.";
+        return false;
+    }
+    if (inspect_error) {
+        detail = "The destination could not be inspected before rollback: " + inspect_error.message();
         return false;
     }
 
     std::error_code restore_error;
-    std::filesystem::rename(backup, destination, restore_error);
+    (void)destination_ownership::rename_no_replace(backup, destination, restore_error);
     if (restore_error) {
         detail = "The previous destination could not be restored: " + restore_error.message();
         return false;
@@ -166,7 +171,7 @@ OperationResult RecoveryOperationEngine::replace_copy(
                       "A safe replacement staging path could not be reserved.");
     }
 
-    std::filesystem::rename(destination, backup, error);
+    (void)destination_ownership::rename_no_replace(destination, backup, error);
     if (error) {
         return result(OperationEngine::status_for_error(error),
                       OperationPhase::Execute,
@@ -227,7 +232,7 @@ OperationResult RecoveryOperationEngine::replace_move(
                       "A safe replacement staging path could not be reserved.");
     }
 
-    std::filesystem::rename(destination, backup, error);
+    (void)destination_ownership::rename_no_replace(destination, backup, error);
     if (error) {
         return result(OperationEngine::status_for_error(error),
                       OperationPhase::Execute,
