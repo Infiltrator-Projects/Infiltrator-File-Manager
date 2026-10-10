@@ -9,6 +9,7 @@
 #include <cstring>
 #include <langinfo.h>
 #include <limits>
+#include <memory>
 #include <string_view>
 #include <vector>
 
@@ -316,20 +317,13 @@ std::string locale_time_text(GDateTime *local, const bool show_seconds)
     return result;
 }
 
-std::string policy_time_text(GDateTime *local, const guint64 seconds)
+std::string policy_time_text(GDateTime *local, const guint64 seconds,
+                             const InfiltratrTemporalPolicyV3 &policy)
 {
-    InfiltratrTemporalPolicyV3 policy{};
-    bool found = false;
-    const InfiltratrIoResult loaded =
-        infiltratr_temporal_posix_policy_load(&policy, &found);
-
     // "standard" deliberately belongs to the platform locale, but the
     // Common-owned show-seconds setting still applies to that presentation.
     // Explicit modes (including standard-12/standard-24) are rendered by
     // Common so Files cannot silently substitute its own clock convention.
-    if (loaded != INFILTRATR_IO_OK || !found) {
-        return locale_time_text(local, true);
-    }
     if (std::strcmp(policy.clock_mode, "standard") == 0) {
         return locale_time_text(local, policy.show_seconds);
     }
@@ -337,14 +331,14 @@ std::string policy_time_text(GDateTime *local, const guint64 seconds)
     constexpr guint64 kMicrosecondsPerSecond = 1000000U;
     if (seconds > static_cast<guint64>(std::numeric_limits<gint64>::max()) /
                       kMicrosecondsPerSecond) {
-        return locale_time_text(local, policy.show_seconds);
+        return "—";
     }
 
     const gint64 offset_microseconds = g_date_time_get_utc_offset(local);
     const gint64 offset_seconds = offset_microseconds / G_TIME_SPAN_SECOND;
     if (offset_seconds < std::numeric_limits<std::int32_t>::min() ||
         offset_seconds > std::numeric_limits<std::int32_t>::max()) {
-        return locale_time_text(local, policy.show_seconds);
+        return "—";
     }
 
     char buffer[128]{};
@@ -362,9 +356,20 @@ std::string policy_time_text(GDateTime *local, const guint64 seconds)
         sizeof(buffer),
         &length);
     if (!formatted || length == 0U || buffer[0] == '\0') {
-        return locale_time_text(local, policy.show_seconds);
+        return "—";
     }
     return buffer;
+}
+
+InfiltratrTemporalDateProvider *default_date_provider()
+{
+    using Provider = std::unique_ptr<InfiltratrTemporalDateProvider,
+        decltype(&infiltratr_temporal_posix_date_provider_free)>;
+    // Visible-row formatting runs on the GTK thread. The shared bridge owns
+    // lazy discovery/retry and never registers toolkit types in this process.
+    static Provider provider(infiltratr_temporal_posix_date_provider_new(),
+        &infiltratr_temporal_posix_date_provider_free);
+    return provider.get();
 }
 
 } // namespace
@@ -473,7 +478,8 @@ std::string detail_size_text(GFileInfo *info)
     return formatted != nullptr && formatted[0] != '\0' ? formatted : "—";
 }
 
-std::string detail_modified_text(GFileInfo *info)
+std::string detail_modified_text(GFileInfo *info,
+                                 InfiltratrTemporalDateProvider *date_provider)
 {
     guint64 seconds = 0U;
     if (!detail_modified_value(info, &seconds) ||
@@ -486,15 +492,38 @@ std::string detail_modified_text(GFileInfo *info)
         return "—";
     }
 
-    // Date order remains the operating-system locale's short date. The clock
-    // component follows the shared temporal policy owned by System Settings.
-    char *date = g_date_time_format(local, "%x");
-    const std::string time = policy_time_text(local, seconds);
-    std::string result = "—";
-    if (date != nullptr && date[0] != '\0' && time != "—") {
-        result = std::string(date) + " " + time;
+    InfiltratrTemporalPolicyV3 policy{};
+    bool found = false;
+    if (infiltratr_temporal_posix_policy_load(&policy, &found) != INFILTRATR_IO_OK ||
+        !found) {
+        infiltratr_temporal_policy_v3_default(&policy);
+        // Preserve the conventional locale timestamp when no valid policy is
+        // configured; its historic Files default includes seconds.
+        policy.show_seconds = true;
     }
-    g_free(date);
+    std::string date = "—";
+    if (std::strcmp(policy.calendar, "gregorian") == 0) {
+        char *formatted = g_date_time_format(local, "%x");
+        if (formatted != nullptr && formatted[0] != '\0') {
+            date = formatted;
+        }
+        g_free(formatted);
+    } else {
+        char formatted[INFILTRATR_TEMPORAL_DATE_CAPACITY]{};
+        if (infiltratr_temporal_posix_format_date(
+                date_provider != nullptr ? date_provider : default_date_provider(),
+                policy.calendar, g_date_time_get_year(local),
+                g_date_time_get_month(local), g_date_time_get_day_of_month(local),
+                "short", formatted, sizeof(formatted), nullptr)) {
+            date = formatted;
+        }
+    }
+    // Missing selected chronology stays unavailable; never silently substitute
+    // a Gregorian date under the user's chosen calendar. Raw sort values remain
+    // the filesystem's timestamps regardless of presentation.
+    const std::string time = policy_time_text(local, seconds, policy);
+    const std::string result = date == "—" && time == "—"
+        ? "—" : date + " " + time;
     g_date_time_unref(local);
     return result;
 }

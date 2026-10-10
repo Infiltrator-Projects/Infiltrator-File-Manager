@@ -18,6 +18,8 @@ using infiltrator::files::detail_type_text;
 
 int main()
 {
+    // Exact civil-time/branch checks must not depend on the runner's timezone.
+    g_setenv("TZ", "UTC", TRUE);
     GFileInfo *directory = g_file_info_new();
     g_file_info_set_file_type(directory, G_FILE_TYPE_DIRECTORY);
     const bool directory_ok = detail_type_text(directory) == "Folder" &&
@@ -197,6 +199,38 @@ int main()
         g_free(config_home);
         g_object_unref(file);
         return 13;
+    }
+
+    // The shared calendar bridge receives the file's local civil date, while
+    // Common renders its clock. A rejected chronology must not silently become
+    // Gregorian, and changing presentation never changes raw timestamp sort.
+    InfiltratrTemporalDateProvider *date_provider =
+        infiltratr_temporal_posix_date_provider_new_from(CALENDAR_DATE_FIXTURE_PATH);
+    if (date_provider == nullptr) {
+        g_free(config_home);
+        g_object_unref(file);
+        return 16;
+    }
+    std::strcpy(policy.calendar, "chinese");
+    std::strcpy(policy.clock_mode, "chinese-time");
+    policy.show_seconds = false;
+    g_file_info_set_attribute_uint64(file, G_FILE_ATTRIBUTE_TIME_MODIFIED, 1791646200U);
+    const bool saved_coarse = infiltratr_temporal_posix_policy_save(&policy) == 0;
+    const bool coarse_ok = saved_coarse &&
+        detail_modified_text(file, date_provider) == "中文日期 申時";
+    policy.show_seconds = true;
+    const bool saved_fine = infiltratr_temporal_posix_policy_save(&policy) == 0;
+    const bool fine_ok = saved_fine &&
+        detail_modified_text(file, date_provider) == "中文日期 申初";
+    std::strcpy(policy.calendar, "roman");
+    const bool saved_unavailable = infiltratr_temporal_posix_policy_save(&policy) == 0;
+    const bool unavailable_ok = saved_unavailable &&
+        detail_modified_text(file, date_provider) == "— 申初";
+    infiltratr_temporal_posix_date_provider_free(date_provider);
+    if (!coarse_ok || !fine_ok || !unavailable_ok) {
+        g_free(config_home);
+        g_object_unref(file);
+        return 17;
     }
 
     g_free(config_home);
