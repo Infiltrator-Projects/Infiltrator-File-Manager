@@ -66,8 +66,9 @@ It currently provides:
 - asynchronous, monitored directory enumeration through GTK/GIO;
 - a virtualised GTK 4 list presentation rather than one widget per directory entry;
 - shared-model **Detail/List**, **Visual/Icons** and **Compact** browse presentations with common selection and activation semantics;
+- an analytical Detail/List presentation with aligned **Name**, **Type**, **Size** and **Date Modified** fields sourced from the same directory metadata model;
 - a true Compact dense-scan composition using a small icon beside each filename so multiple readable columns can flow across the window;
-- native file/folder icons, file sizes and item count/status;
+- native file/folder icons, Common-formatted file sizes and item count/status;
 - directory activation and launching files through the platform's registered default application;
 - a toolkit-neutral `Location` model and navigation history beneath the GTK presentation;
 - the canonical Infiltrator Day/Night/System design contract from pinned Common;
@@ -116,7 +117,7 @@ It currently provides:
 
 Metadata preservation is deliberately honest in 0.1.10: permissions and modification timestamps are qualified for ordinary copy/cross-volume transfer paths, while ownership, ACLs, extended attributes, sparse-file preservation and symlink metadata remain future capability work. Multi-selection batch Copy/Move is present; destructive batch Trash/Delete is not yet claimed.
 
-The next implementation work moves into the richer file/object/capability model, mounted/removable volume discovery and remote-location/provider capability handling. Those are the next architecture layer rather than more ad-hoc mutation controls.
+The next implementation work continues the richer file/object/capability model and remote-location/provider handling; mounted/removable discovery is already part of the browsing foundation rather than a reason to add ad-hoc controls.
 
 Semantic/context indexing and InfiltratorFS-specific capability providers are also deliberately absent from this early executable. Ordinary file-manager correctness comes first.
 

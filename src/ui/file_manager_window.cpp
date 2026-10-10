@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "file_manager_window.hpp"
+#include "detail_metadata.hpp"
 
 #include <infiltratr/design.h>
 
@@ -14,7 +15,20 @@ namespace {
 
 constexpr const char *kDirectoryAttributes =
     "standard::name,standard::display-name,standard::type,standard::size,"
-    "standard::content-type,standard::icon,standard::is-hidden,time::modified";
+    "standard::content-type,standard::icon,standard::is-hidden,standard::is-symlink,"
+    "time::modified";
+
+constexpr int kDetailIconSize = 24;
+constexpr int kDetailTypeWidth = 160;
+constexpr int kDetailSizeWidth = 96;
+constexpr int kDetailModifiedWidth = 190;
+
+enum class DetailField {
+    Name = 1,
+    Type,
+    Size,
+    Modified,
+};
 
 std::string colour_hex(const std::uint32_t rgb)
 {
@@ -206,14 +220,35 @@ void FileManagerWindow::build_ui(GtkApplication *application)
     g_signal_connect(primary_selection_, "notify::selected",
                      G_CALLBACK(on_primary_selection_changed), this);
 
-    GtkListItemFactory *list_factory = gtk_signal_list_item_factory_new();
-    g_signal_connect(list_factory, "setup", G_CALLBACK(on_factory_setup), this);
-    g_signal_connect(list_factory, "bind", G_CALLBACK(on_factory_bind), this);
-
-    GtkWidget *list = gtk_list_view_new(GTK_SELECTION_MODEL(selection_), list_factory);
-    gtk_list_view_set_single_click_activate(GTK_LIST_VIEW(list), FALSE);
+    GtkWidget *list = gtk_column_view_new(GTK_SELECTION_MODEL(selection_));
+    gtk_column_view_set_single_click_activate(GTK_COLUMN_VIEW(list), FALSE);
     gtk_widget_add_css_class(list, "ifm-file-list");
     g_signal_connect(list, "activate", G_CALLBACK(on_list_activate), this);
+
+    const auto append_detail_column = [this, list](const char *title,
+                                                    const DetailField field,
+                                                    const int fixed_width,
+                                                    const bool expand) {
+        GtkListItemFactory *factory = gtk_signal_list_item_factory_new();
+        g_object_set_data(G_OBJECT(factory), "ifm-detail-field",
+                          GINT_TO_POINTER(static_cast<int>(field)));
+        g_signal_connect(factory, "setup", G_CALLBACK(on_factory_setup), this);
+        g_signal_connect(factory, "bind", G_CALLBACK(on_factory_bind), this);
+
+        GtkColumnViewColumn *column = gtk_column_view_column_new(title, factory);
+        gtk_column_view_column_set_expand(column, expand);
+        gtk_column_view_column_set_resizable(column, FALSE);
+        if (fixed_width > 0) {
+            gtk_column_view_column_set_fixed_width(column, fixed_width);
+        }
+        gtk_column_view_append_column(GTK_COLUMN_VIEW(list), column);
+        g_object_unref(column);
+    };
+
+    append_detail_column("Name", DetailField::Name, 0, true);
+    append_detail_column("Type", DetailField::Type, kDetailTypeWidth, false);
+    append_detail_column("Size", DetailField::Size, kDetailSizeWidth, false);
+    append_detail_column("Date Modified", DetailField::Modified, kDetailModifiedWidth, false);
 
     GtkListItemFactory *icon_factory = gtk_signal_list_item_factory_new();
     g_object_set_data(G_OBJECT(icon_factory), "ifm-icon-size", GINT_TO_POINTER(64));
@@ -221,9 +256,9 @@ void FileManagerWindow::build_ui(GtkApplication *application)
     g_signal_connect(icon_factory, "setup", G_CALLBACK(on_icon_factory_setup), this);
     g_signal_connect(icon_factory, "bind", G_CALLBACK(on_icon_factory_bind), this);
 
-    // GtkListView and GtkGridView consume a reference to the selection model. The
-    // list owns the original reference; each additional view therefore receives
-    // its own reference while all three continue to represent one selection state.
+    // GtkColumnView and GtkGridView consume a reference to the selection model. The
+    // detail view owns the original reference; each additional view therefore
+    // receives its own reference while all three represent one selection state.
     GtkWidget *icons = gtk_grid_view_new(
         GTK_SELECTION_MODEL(g_object_ref(selection_)), icon_factory);
     gtk_grid_view_set_single_click_activate(GTK_GRID_VIEW(icons), FALSE);
@@ -300,16 +335,22 @@ void FileManagerWindow::apply_theme()
         << ".ifm-sidebar row { margin: 2px 6px; border-radius: " << metrics->control_radius << "px; }\n"
         << ".ifm-sidebar row:hover { background: " << colour_hex(palette->surface_hover_rgb) << "; }\n"
         << ".ifm-file-list, .ifm-icon-grid { background: " << colour_hex(palette->background_rgb) << "; }\n"
-        << ".ifm-file-list row { margin: 2px 8px; border-radius: " << metrics->control_radius << "px; }\n"
+        << ".ifm-file-list row { border-radius: " << metrics->control_radius << "px; }\n"
         << ".ifm-file-list row:hover { background: " << colour_hex(palette->surface_hover_rgb) << "; }\n"
         << ".ifm-file-list row:selected { background: " << colour_hex(palette->selection_background_rgb)
         << "; color: " << colour_hex(palette->selection_foreground_rgb) << "; }\n"
+        << ".ifm-file-list header, .ifm-file-list header button { background: "
+        << colour_hex(palette->panel_rgb) << "; color: " << colour_hex(palette->muted_rgb)
+        << "; border-color: " << colour_hex(palette->border_rgb) << "; }\n"
         << ".ifm-icon-tile { margin: 4px; padding: 8px 6px; border-radius: "
         << metrics->control_radius << "px; }\n"
         << ".ifm-icon-tile:hover { background: " << colour_hex(palette->surface_hover_rgb) << "; }\n"
         << ".ifm-compact-tile { margin: 2px; padding: 5px 8px; }\n"
         << ".ifm-file-name { color: " << colour_hex(palette->text_rgb) << "; }\n"
-        << ".ifm-file-meta { color: " << colour_hex(palette->muted_rgb) << "; font-size: 0.88em; }\n"
+        << ".ifm-detail-secondary { color: " << colour_hex(palette->muted_rgb) << "; }\n"
+        << ".ifm-file-list row:selected .ifm-file-name, "
+        << ".ifm-file-list row:selected .ifm-detail-secondary { color: "
+        << colour_hex(palette->selection_foreground_rgb) << "; }\n"
         << ".ifm-status { background: " << colour_hex(palette->panel_rgb)
         << "; color: " << colour_hex(palette->muted_rgb)
         << "; border-top: 1px solid " << colour_hex(palette->border_rgb) << "; }\n"
@@ -708,7 +749,7 @@ void FileManagerWindow::on_sidebar_row_activated(GtkListBox *box, GtkListBoxRow 
     }
 }
 
-void FileManagerWindow::on_list_activate(GtkListView *view, const guint position, gpointer user_data)
+void FileManagerWindow::on_list_activate(GtkColumnView *view, const guint position, gpointer user_data)
 {
     (void)view;
     static_cast<FileManagerWindow *>(user_data)->activate_position(position);
@@ -739,73 +780,103 @@ void FileManagerWindow::on_factory_setup(GtkSignalListItemFactory *factory,
                                          GtkListItem *item,
                                          gpointer user_data)
 {
-    (void)factory;
     (void)user_data;
 
-    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 12);
-    gtk_widget_set_margin_start(row, 12);
-    gtk_widget_set_margin_end(row, 12);
-    gtk_widget_set_margin_top(row, 8);
-    gtk_widget_set_margin_bottom(row, 8);
+    const int encoded = GPOINTER_TO_INT(
+        g_object_get_data(G_OBJECT(factory), "ifm-detail-field"));
+    if (encoded < static_cast<int>(DetailField::Name) ||
+        encoded > static_cast<int>(DetailField::Modified)) {
+        return;
+    }
 
-    GtkWidget *icon = gtk_image_new();
-    gtk_image_set_pixel_size(GTK_IMAGE(icon), 30);
-    gtk_box_append(GTK_BOX(row), icon);
+    const auto field = static_cast<DetailField>(encoded);
+    if (field == DetailField::Name) {
+        GtkWidget *cell = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+        gtk_widget_set_margin_start(cell, 8);
+        gtk_widget_set_margin_end(cell, 6);
+        gtk_widget_set_margin_top(cell, 5);
+        gtk_widget_set_margin_bottom(cell, 5);
 
-    GtkWidget *text = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
-    gtk_widget_set_hexpand(text, TRUE);
-    gtk_box_append(GTK_BOX(row), text);
+        GtkWidget *icon = gtk_image_new();
+        gtk_image_set_pixel_size(GTK_IMAGE(icon), kDetailIconSize);
+        gtk_widget_set_size_request(icon, kDetailIconSize, -1);
+        gtk_box_append(GTK_BOX(cell), icon);
 
-    GtkWidget *name = gtk_label_new("");
-    gtk_label_set_xalign(GTK_LABEL(name), 0.0F);
-    gtk_label_set_ellipsize(GTK_LABEL(name), PANGO_ELLIPSIZE_END);
-    gtk_widget_add_css_class(name, "ifm-file-name");
-    gtk_box_append(GTK_BOX(text), name);
+        GtkWidget *name = gtk_label_new("");
+        gtk_label_set_xalign(GTK_LABEL(name), 0.0F);
+        gtk_label_set_single_line_mode(GTK_LABEL(name), TRUE);
+        gtk_label_set_ellipsize(GTK_LABEL(name), PANGO_ELLIPSIZE_END);
+        gtk_widget_set_hexpand(name, TRUE);
+        gtk_widget_set_halign(name, GTK_ALIGN_FILL);
+        gtk_widget_add_css_class(name, "ifm-file-name");
+        gtk_box_append(GTK_BOX(cell), name);
 
-    GtkWidget *meta = gtk_label_new("");
-    gtk_label_set_xalign(GTK_LABEL(meta), 0.0F);
-    gtk_label_set_ellipsize(GTK_LABEL(meta), PANGO_ELLIPSIZE_END);
-    gtk_widget_add_css_class(meta, "ifm-file-meta");
-    gtk_box_append(GTK_BOX(text), meta);
+        g_object_set_data(G_OBJECT(cell), "ifm-icon", icon);
+        g_object_set_data(G_OBJECT(cell), "ifm-name", name);
+        gtk_list_item_set_child(item, cell);
+        return;
+    }
 
-    g_object_set_data(G_OBJECT(row), "ifm-icon", icon);
-    g_object_set_data(G_OBJECT(row), "ifm-name", name);
-    g_object_set_data(G_OBJECT(row), "ifm-meta", meta);
-    gtk_list_item_set_child(item, row);
+    GtkWidget *label = gtk_label_new("");
+    gtk_label_set_xalign(GTK_LABEL(label), field == DetailField::Size ? 1.0F : 0.0F);
+    gtk_label_set_single_line_mode(GTK_LABEL(label), TRUE);
+    gtk_label_set_ellipsize(GTK_LABEL(label), PANGO_ELLIPSIZE_END);
+    gtk_widget_set_margin_start(label, 6);
+    gtk_widget_set_margin_end(label, 6);
+    gtk_widget_set_margin_top(label, 5);
+    gtk_widget_set_margin_bottom(label, 5);
+    gtk_widget_set_halign(label, GTK_ALIGN_FILL);
+    gtk_widget_add_css_class(label, "ifm-detail-secondary");
+    gtk_list_item_set_child(item, label);
 }
 
 void FileManagerWindow::on_factory_bind(GtkSignalListItemFactory *factory,
                                         GtkListItem *item,
                                         gpointer user_data)
 {
-    (void)factory;
     (void)user_data;
 
     auto *info = G_FILE_INFO(gtk_list_item_get_item(item));
-    GtkWidget *row = gtk_list_item_get_child(item);
-    if (info == nullptr || row == nullptr) {
+    GtkWidget *child = gtk_list_item_get_child(item);
+    if (info == nullptr || child == nullptr) {
         return;
     }
 
-    auto *icon = GTK_IMAGE(g_object_get_data(G_OBJECT(row), "ifm-icon"));
-    auto *name = GTK_LABEL(g_object_get_data(G_OBJECT(row), "ifm-name"));
-    auto *meta = GTK_LABEL(g_object_get_data(G_OBJECT(row), "ifm-meta"));
-
-    if (GIcon *file_icon = g_file_info_get_icon(info); file_icon != nullptr) {
-        gtk_image_set_from_gicon(icon, file_icon);
-    } else {
-        gtk_image_set_from_icon_name(icon, "text-x-generic-symbolic");
+    const int encoded = GPOINTER_TO_INT(
+        g_object_get_data(G_OBJECT(factory), "ifm-detail-field"));
+    if (encoded < static_cast<int>(DetailField::Name) ||
+        encoded > static_cast<int>(DetailField::Modified)) {
+        return;
     }
 
-    const char *display_name = g_file_info_get_display_name(info);
-    gtk_label_set_text(name, display_name != nullptr ? display_name : "");
-
-    if (g_file_info_get_file_type(info) == G_FILE_TYPE_DIRECTORY) {
-        gtk_label_set_text(meta, "Folder");
-    } else {
-        char *formatted_size = g_format_size(static_cast<guint64>(g_file_info_get_size(info)));
-        gtk_label_set_text(meta, formatted_size != nullptr ? formatted_size : "File");
-        g_free(formatted_size);
+    switch (static_cast<DetailField>(encoded)) {
+    case DetailField::Name: {
+        auto *icon = GTK_IMAGE(g_object_get_data(G_OBJECT(child), "ifm-icon"));
+        auto *name = GTK_LABEL(g_object_get_data(G_OBJECT(child), "ifm-name"));
+        if (GIcon *file_icon = g_file_info_get_icon(info); file_icon != nullptr) {
+            gtk_image_set_from_gicon(icon, file_icon);
+        } else {
+            gtk_image_set_from_icon_name(icon, "text-x-generic-symbolic");
+        }
+        const char *display_name = g_file_info_get_display_name(info);
+        gtk_label_set_text(name, display_name != nullptr ? display_name : "");
+        break;
+    }
+    case DetailField::Type: {
+        const std::string value = detail_type_text(info);
+        gtk_label_set_text(GTK_LABEL(child), value.c_str());
+        break;
+    }
+    case DetailField::Size: {
+        const std::string value = detail_size_text(info);
+        gtk_label_set_text(GTK_LABEL(child), value.c_str());
+        break;
+    }
+    case DetailField::Modified: {
+        const std::string value = detail_modified_text(info);
+        gtk_label_set_text(GTK_LABEL(child), value.c_str());
+        break;
+    }
     }
 }
 
