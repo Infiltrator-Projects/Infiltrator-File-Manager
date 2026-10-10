@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "revision": 11,
+  "revision": 12,
   "mode": "WORK",
-  "updated_at": "2026-10-10T12:36:23.544Z",
+  "updated_at": "2026-10-10T12:52:05.260Z",
   "baseline": {
     "main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
     "version": "0.1.16",
@@ -98,11 +98,11 @@
       "next_action": "Builder must reconcile PR #10 head into state, fix the directory-claim, atomic cleanup, Release-disabled test and owned-partial rollback defects, resolve/reconcile all five review threads, rerun exact-head CI, then transition to REVIEW_READY."
     },
     "Integrator": {
-      "at": "2026-10-10T12:09:38.728Z",
-      "status": "startup communication check verified",
-      "observed_revision": 5,
-      "observed_head": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
-      "next_action": "Foreground HAL must verify all five independent receipts before switching mode to WORK."
+      "at": "2026-10-10T12:52:05.260Z",
+      "status": "BUILDING under live Builder lease; integration gates not satisfied",
+      "observed_revision": 11,
+      "observed_head": "b4a48717cdcae598a6dab92ec538700769c774d7",
+      "next_action": "Builder must finish the complete five-thread hard set on PR #10 and transition to REVIEW_READY; Reviewer must then submit a formal exact-head review before any Integrator action."
     },
     "Fixer": {
       "at": "2026-10-10T12:36:23.544Z",
