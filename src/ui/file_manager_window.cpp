@@ -65,6 +65,60 @@ GtkWidget *make_scroller(GtkWidget *child)
     return scroll;
 }
 
+int compare_detail_items(gconstpointer left, gconstpointer right, gpointer user_data)
+{
+    auto *left_info = G_FILE_INFO(const_cast<gpointer>(left));
+    auto *right_info = G_FILE_INFO(const_cast<gpointer>(right));
+    const int encoded = GPOINTER_TO_INT(user_data);
+    if (left_info == nullptr || right_info == nullptr ||
+        encoded < static_cast<int>(DetailField::Name) ||
+        encoded > static_cast<int>(DetailField::Modified)) {
+        return 0;
+    }
+
+    switch (static_cast<DetailField>(encoded)) {
+    case DetailField::Name:
+        return detail_compare_name(left_info, right_info);
+    case DetailField::Type:
+        return detail_compare_type(left_info, right_info);
+    case DetailField::Size:
+        return detail_compare_size(left_info, right_info);
+    case DetailField::Modified:
+        return detail_compare_modified(left_info, right_info);
+    }
+    return 0;
+}
+
+bool same_directory_item(GFileInfo *left, GFileInfo *right)
+{
+    if (left == right) {
+        return true;
+    }
+    if (left == nullptr || right == nullptr) {
+        return false;
+    }
+    return g_strcmp0(g_file_info_get_name(left), g_file_info_get_name(right)) == 0;
+}
+
+guint find_item_position(GListModel *model, GFileInfo *needle)
+{
+    if (model == nullptr || needle == nullptr) {
+        return GTK_INVALID_LIST_POSITION;
+    }
+    const guint count = g_list_model_get_n_items(model);
+    for (guint index = 0U; index < count; ++index) {
+        GFileInfo *candidate = G_FILE_INFO(g_list_model_get_item(model, index));
+        const bool match = same_directory_item(candidate, needle);
+        if (candidate != nullptr) {
+            g_object_unref(candidate);
+        }
+        if (match) {
+            return index;
+        }
+    }
+    return GTK_INVALID_LIST_POSITION;
+}
+
 } // namespace
 
 FileManagerWindow::FileManagerWindow(GtkApplication *application)
@@ -212,7 +266,14 @@ void FileManagerWindow::build_ui(GtkApplication *application)
     g_signal_connect(directory_list_, "notify::loading", G_CALLBACK(on_loading_changed), this);
     g_signal_connect(directory_list_, "notify::error", G_CALLBACK(on_loading_changed), this);
 
-    selection_ = gtk_multi_selection_new(G_LIST_MODEL(directory_list_));
+    GtkSortListModel *sort_model =
+        gtk_sort_list_model_new(G_LIST_MODEL(directory_list_), nullptr);
+    selection_ = gtk_multi_selection_new(G_LIST_MODEL(sort_model));
+    g_object_unref(sort_model);
+
+    // Single-item operation controllers still use the authoritative directory
+    // model directly. Selection synchronization maps by GFileInfo identity/name
+    // so presentation sorting can never redirect an operation to another item.
     primary_selection_ = gtk_single_selection_new(G_LIST_MODEL(directory_list_));
     gtk_single_selection_set_autoselect(primary_selection_, FALSE);
     g_signal_connect(selection_, "selection-changed",
@@ -241,6 +302,14 @@ void FileManagerWindow::build_ui(GtkApplication *application)
         if (fixed_width > 0) {
             gtk_column_view_column_set_fixed_width(column, fixed_width);
         }
+
+        GtkSorter *sorter = GTK_SORTER(gtk_custom_sorter_new(
+            compare_detail_items,
+            GINT_TO_POINTER(static_cast<int>(field)),
+            nullptr));
+        gtk_column_view_column_set_sorter(column, sorter);
+        g_object_unref(sorter);
+
         gtk_column_view_append_column(GTK_COLUMN_VIEW(list), column);
         g_object_unref(column);
     };
@@ -249,6 +318,16 @@ void FileManagerWindow::build_ui(GtkApplication *application)
     append_detail_column("Type", DetailField::Type, kDetailTypeWidth, false);
     append_detail_column("Size", DetailField::Size, kDetailSizeWidth, false);
     append_detail_column("Date Modified", DetailField::Modified, kDetailModifiedWidth, false);
+
+    // GtkColumnView owns the active column/direction state in its aggregate
+    // sorter. Feeding that sorter into the shared presentation model makes a
+    // header click reorder List, Visual and Compact consistently.
+    GListModel *presentation_model = gtk_multi_selection_get_model(selection_);
+    if (GTK_IS_SORT_LIST_MODEL(presentation_model)) {
+        gtk_sort_list_model_set_sorter(
+            GTK_SORT_LIST_MODEL(presentation_model),
+            gtk_column_view_get_sorter(GTK_COLUMN_VIEW(list)));
+    }
 
     GtkListItemFactory *icon_factory = gtk_signal_list_item_factory_new();
     g_object_set_data(G_OBJECT(icon_factory), "ifm-icon-size", GINT_TO_POINTER(64));
@@ -538,11 +617,13 @@ void FileManagerWindow::navigate_history(const std::ptrdiff_t delta)
 
 void FileManagerWindow::activate_position(const guint position)
 {
-    if (current_location_ == nullptr) {
+    if (current_location_ == nullptr || selection_ == nullptr) {
         return;
     }
 
-    GFileInfo *info = G_FILE_INFO(g_list_model_get_item(G_LIST_MODEL(directory_list_), position));
+    GListModel *model = gtk_multi_selection_get_model(selection_);
+    GFileInfo *info = model != nullptr
+        ? G_FILE_INFO(g_list_model_get_item(model, position)) : nullptr;
     if (info == nullptr) {
         return;
     }
@@ -646,22 +727,30 @@ void FileManagerWindow::sync_primary_from_multi()
     }
 
     selection_syncing_ = true;
-    guint selected_index = GTK_INVALID_LIST_POSITION;
+    guint selected_position = GTK_INVALID_LIST_POSITION;
     guint selected_count = 0U;
-    const guint count = g_list_model_get_n_items(G_LIST_MODEL(directory_list_));
+    GListModel *presentation_model = gtk_multi_selection_get_model(selection_);
+    const guint count = presentation_model != nullptr
+        ? g_list_model_get_n_items(presentation_model) : 0U;
     for (guint index = 0U; index < count; ++index) {
         if (!gtk_selection_model_is_selected(GTK_SELECTION_MODEL(selection_), index)) {
             continue;
         }
         ++selected_count;
         if (selected_count == 1U) {
-            selected_index = index;
+            GFileInfo *selected_info =
+                G_FILE_INFO(g_list_model_get_item(presentation_model, index));
+            selected_position = find_item_position(
+                G_LIST_MODEL(directory_list_), selected_info);
+            if (selected_info != nullptr) {
+                g_object_unref(selected_info);
+            }
         } else {
-            selected_index = GTK_INVALID_LIST_POSITION;
+            selected_position = GTK_INVALID_LIST_POSITION;
             break;
         }
     }
-    gtk_single_selection_set_selected(primary_selection_, selected_index);
+    gtk_single_selection_set_selected(primary_selection_, selected_position);
     selection_syncing_ = false;
 }
 
@@ -675,7 +764,18 @@ void FileManagerWindow::sync_multi_from_primary()
     gtk_selection_model_unselect_all(GTK_SELECTION_MODEL(selection_));
     const guint selected = gtk_single_selection_get_selected(primary_selection_);
     if (selected != GTK_INVALID_LIST_POSITION) {
-        gtk_selection_model_select_item(GTK_SELECTION_MODEL(selection_), selected, TRUE);
+        GFileInfo *selected_info = G_FILE_INFO(
+            g_list_model_get_item(G_LIST_MODEL(directory_list_), selected));
+        GListModel *presentation_model = gtk_multi_selection_get_model(selection_);
+        const guint presentation_position =
+            find_item_position(presentation_model, selected_info);
+        if (selected_info != nullptr) {
+            g_object_unref(selected_info);
+        }
+        if (presentation_position != GTK_INVALID_LIST_POSITION) {
+            gtk_selection_model_select_item(GTK_SELECTION_MODEL(selection_),
+                                            presentation_position, TRUE);
+        }
     }
     selection_syncing_ = false;
 }
