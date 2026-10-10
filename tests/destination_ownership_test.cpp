@@ -411,8 +411,13 @@ int main()
         return 53;
     }
     error.clear();
-    if (!require(ownership::cleanup_owned(symlink_outputs, error) &&
-                     !std::filesystem::exists(private_link),
+    const bool symlink_cleaned = ownership::cleanup_owned(symlink_outputs, error);
+    std::error_code link_state_error;
+    const auto link_state = std::filesystem::symlink_status(private_link, link_state_error);
+    const bool private_link_gone =
+        link_state.type() == std::filesystem::file_type::not_found ||
+        link_state_error == std::errc::no_such_file_or_directory;
+    if (!require(symlink_cleaned && private_link_gone,
                  "private symlink cleanup did not remove the owned temporary link")) {
         return 54;
     }
@@ -448,12 +453,16 @@ int main()
                  "failed tree cleanup did not restore remaining owned data")) {
         return 58;
     }
+    error.clear();
     std::filesystem::permissions(partial_cleanup,
                                  std::filesystem::perms::owner_all,
                                  std::filesystem::perm_options::replace,
-                                 cleanup_error);
+                                 error);
+    if (!require(!error, "could not restore cleanup fixture permissions")) {
+        return 59;
+    }
 
     error.clear();
     std::filesystem::remove_all(root, error);
-    return require(!error, "could not remove test root") ? 0 : 59;
+    return require(!error, "could not remove test root") ? 0 : 60;
 }
