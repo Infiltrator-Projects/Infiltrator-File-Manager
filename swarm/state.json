@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "revision": 18,
+  "revision": 19,
   "mode": "WORK",
-  "updated_at": "2026-10-10T13:39:30.780Z",
+  "updated_at": "2026-10-10T13:47:35.244Z",
   "baseline": {
     "main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
     "version": "0.1.16",
@@ -44,27 +44,28 @@
       "url": "https://github.com/Infiltrator-Projects/Infiltrator-File-Manager/pull/10",
       "branch": "swarm/destination-ownership",
       "base_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
-      "head_sha": "d6b1ba6224f1b80079a2de497c5f0993a4819447",
+      "head_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
       "draft": false,
-      "status": "FIXING: Fixer claimed the complete five-finding formal review set on exact head d6b1ba6.",
+      "status": "FIXING: complete formal hard set implemented on f5f2b5de; hosted exact-head Release CI 38057074480 queued.",
       "changed_files": [
-        "CMakeLists.txt",
         "README.md",
         "src/core/destination_ownership.hpp",
         "src/core/operation_engine.cpp",
         "src/core/recovery_operation_engine.cpp",
         "src/core/transfer_operation_engine.cpp",
-        "tests/destination_ownership_test.cpp"
+        "tests/destination_ownership_test.cpp",
+        "tests/operation_engine_test.cpp"
       ],
       "evidence": [
-        "Atomic Linux RENAME_NOREPLACE destination commits for Rename/Move and rollback restore.",
-        "Exclusive O_CREAT|O_EXCL regular-file creation and checked exclusive directory creation.",
-        "Device/inode ownership ledger with same-directory atomic quarantine, post-quarantine identity verification, and competitor-safe restoration/retention.",
-        "Copy success verifies the visible destination identity before cross-volume source removal.",
-        "Replacement failure removes only unchanged owned partial output before restoring the staged original; competitor content remains authoritative.",
-        "Release-effective explicit-check regression executable covers rename/file/directory no-clobber, changed-path cleanup, owned cleanup, and rollback conflict.",
-        "Exact-head Verify run 38055256508 succeeded for d6b1ba6224f1b80079a2de497c5f0993a4819447.",
-        "All five automated review threads have evidence-backed replies and are resolved."
+        "OperationEngine delegates move semantics to one TransferOperationEngine implementation; same-volume moves verify the moved identity.",
+        "Copy completion verifies every recorded destination object, not only the root.",
+        "Cross-volume move quarantines the unchanged source, re-verifies the complete destination proof, then removes the source quarantine.",
+        "A fully copied, metadata-preserved and identity-verified destination is the truthful late-cancellation commit point.",
+        "Regular files use normal close semantics; unconditional per-file fsync was removed.",
+        "Replacement/restore staging records identity; rollback and cleanup quarantine and verify that staged object before restoring or removing it.",
+        "Release-effective deterministic tests cover complete child proof, staged-backup replacement and real /tmp-to-/dev/shm cross-volume move.",
+        "Local direct g++ Release-equivalent warning builds and destination/operation/transfer tests passed; full CMake unavailable locally.",
+        "Hosted exact-head Verify run 38057074480 queued for f5f2b5de58abb0d65d0a8814b79706536922e7a3."
       ]
     },
     "review": {
@@ -89,7 +90,9 @@
         "threads": [
           "PRRT_kwDOU9Z1nc6rETrS",
           "PRRT_kwDOU9Z1nc6rEXUg"
-        ]
+        ],
+        "status": "addressed_pending_ci",
+        "addressed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3"
       },
       {
         "id": "directory-copy-complete-identity",
@@ -101,7 +104,9 @@
         "required": "Verify the complete owned output set, or provide equivalent full-copy proof, before success/source removal. Add a deterministic child-replacement Release test.",
         "threads": [
           "PRRT_kwDOU9Z1nc6rEXUj"
-        ]
+        ],
+        "status": "addressed_pending_ci",
+        "addressed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3"
       },
       {
         "id": "late-cross-volume-cancellation",
@@ -113,7 +118,9 @@
         "required": "Safely clean the owned destination or make successful copy_exact completion the documented commit point and return truthful completion. Add a post-copy cancellation test.",
         "threads": [
           "PRRT_kwDOU9Z1nc6rETrV"
-        ]
+        ],
+        "status": "addressed_pending_ci",
+        "addressed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3"
       },
       {
         "id": "per-file-fsync-performance",
@@ -125,7 +132,9 @@
         "required": "Restore normal close semantics or implement a measured coherent durability policy; qualify large-tree behavior.",
         "threads": [
           "PRRT_kwDOU9Z1nc6rETrZ"
-        ]
+        ],
+        "status": "addressed_pending_ci",
+        "addressed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3"
       },
       {
         "id": "staged-backup-ownership",
@@ -137,7 +146,9 @@
         "required": "Record the staged object's identity and use identity-safe quarantine/verification before rollback or deletion. Add rollback and successful-cleanup replacement-race Release tests.",
         "threads": [
           "PRRT_kwDOU9Z1nc6rEXUn"
-        ]
+        ],
+        "status": "addressed_pending_ci",
+        "addressed_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3"
       }
     ],
     "integration": null,
@@ -179,11 +190,11 @@
       "next_action": "Builder must finish the complete five-thread hard set on PR #10 and transition to REVIEW_READY; Reviewer must then submit a formal exact-head review before any Integrator action."
     },
     "Fixer": {
-      "at": "2026-10-10T13:39:30.780Z",
-      "status": "FIXING claimed for complete five-finding formal review set",
-      "observed_revision": 17,
-      "observed_head": "d6b1ba6224f1b80079a2de497c5f0993a4819447",
-      "next_action": "Correct all five findings on PR #10, add Release-effective race/cancellation tests, resolve six threads, and rerun exact-head CI."
+      "at": "2026-10-10T13:47:35.244Z",
+      "status": "Complete five-finding set implemented on f5f2b5de; exact-head CI queued",
+      "observed_revision": 18,
+      "observed_head": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
+      "next_action": "Wait for Verify 38057074480; on success reply/resolve all six findings with exact evidence, inspect the final diff, mark INTEGRATE_READY and release the lease."
     }
   },
   "last_transition": {
