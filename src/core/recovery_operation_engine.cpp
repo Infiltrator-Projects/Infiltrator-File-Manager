@@ -98,18 +98,11 @@ bool stage_destination(const std::filesystem::path &destination,
     if (error) {
         return false;
     }
-    if (!destination_ownership::rename_no_replace(destination, backup, error)) {
-        return false;
-    }
-
-    staged = destination_ownership::OwnedOutput{backup, identity};
-    if (!destination_ownership::same_object(backup, identity, error)) {
-        if (!error) {
-            error = std::make_error_code(std::errc::state_not_recoverable);
-        }
-        return false;
-    }
-    return true;
+    return destination_ownership::move_owned_no_replace(
+        destination_ownership::OwnedOutput{destination, identity},
+        backup,
+        staged,
+        error);
 }
 
 bool rollback_destination(const std::filesystem::path &destination,

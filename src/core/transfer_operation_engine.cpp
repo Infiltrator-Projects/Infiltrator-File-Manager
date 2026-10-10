@@ -64,6 +64,105 @@ bool path_is_within(const std::filesystem::path &candidate,
     return true;
 }
 
+bool equivalent_copy_shape(const std::filesystem::path &source,
+                           const std::filesystem::path &destination,
+                           std::error_code &error)
+{
+    error.clear();
+    const std::filesystem::file_status source_status =
+        std::filesystem::symlink_status(source, error);
+    if (error) {
+        return false;
+    }
+    const std::filesystem::file_status destination_status =
+        std::filesystem::symlink_status(destination, error);
+    if (error || source_status.type() != destination_status.type()) {
+        return false;
+    }
+
+    if (std::filesystem::is_regular_file(source_status)) {
+        const std::uintmax_t source_size = std::filesystem::file_size(source, error);
+        if (error) {
+            return false;
+        }
+        const std::uintmax_t destination_size =
+            std::filesystem::file_size(destination, error);
+        return !error && source_size == destination_size;
+    }
+
+    if (std::filesystem::is_symlink(source_status)) {
+        const std::filesystem::path source_target =
+            std::filesystem::read_symlink(source, error);
+        if (error) {
+            return false;
+        }
+        const std::filesystem::path destination_target =
+            std::filesystem::read_symlink(destination, error);
+        return !error && source_target == destination_target;
+    }
+
+    if (!std::filesystem::is_directory(source_status)) {
+        return false;
+    }
+
+    std::uintmax_t source_entries = 0U;
+    for (std::filesystem::recursive_directory_iterator iterator(source, error), end;
+         !error && iterator != end;
+         iterator.increment(error)) {
+        ++source_entries;
+        const std::filesystem::path relative =
+            iterator->path().lexically_relative(source);
+        if (relative.empty()) {
+            return false;
+        }
+
+        const std::filesystem::path counterpart = destination / relative;
+        const std::filesystem::file_status item_status = iterator->symlink_status(error);
+        if (error) {
+            return false;
+        }
+        const std::filesystem::file_status counterpart_status =
+            std::filesystem::symlink_status(counterpart, error);
+        if (error || item_status.type() != counterpart_status.type()) {
+            return false;
+        }
+        if (std::filesystem::is_regular_file(item_status)) {
+            const std::uintmax_t item_size =
+                std::filesystem::file_size(iterator->path(), error);
+            if (error) {
+                return false;
+            }
+            const std::uintmax_t counterpart_size =
+                std::filesystem::file_size(counterpart, error);
+            if (error || item_size != counterpart_size) {
+                return false;
+            }
+        } else if (std::filesystem::is_symlink(item_status)) {
+            const std::filesystem::path item_target =
+                std::filesystem::read_symlink(iterator->path(), error);
+            if (error) {
+                return false;
+            }
+            const std::filesystem::path counterpart_target =
+                std::filesystem::read_symlink(counterpart, error);
+            if (error || item_target != counterpart_target) {
+                return false;
+            }
+        }
+    }
+    if (error) {
+        return false;
+    }
+
+    std::uintmax_t destination_entries = 0U;
+    for (std::filesystem::recursive_directory_iterator iterator(destination, error), end;
+         !error && iterator != end;
+         iterator.increment(error)) {
+        ++destination_entries;
+    }
+    return !error && source_entries == destination_entries;
+}
+
 OperationResult preflight_parent(const std::filesystem::path &source,
                                  const std::filesystem::path &destination_parent)
 {
@@ -316,13 +415,15 @@ OperationResult copy_exact(const std::filesystem::path &source,
             file_metadata.emplace_back(source, destination);
         }
     } else if (std::filesystem::is_directory(source_status)) {
-        (void)destination_ownership::create_directory_exclusive(destination, error);
-        if (!error) {
-            (void)destination_ownership::record(destination, owned, error);
+        const std::filesystem::path private_destination =
+            destination_ownership::create_private_directory(destination, owned, error);
+        if (private_destination.empty()) {
+            return failure(OperationEngine::status_for_error(error),
+                           OperationPhase::Execute,
+                           destination,
+                           "A private directory copy could not be created: " + error.message());
         }
-        if (!error) {
-            directory_metadata.emplace_back(source, destination);
-        }
+        directory_metadata.emplace_back(source, private_destination);
         if (!error && control != nullptr) {
             control->add_item();
         }
@@ -336,7 +437,7 @@ OperationResult copy_exact(const std::filesystem::path &source,
             }
 
             const auto relative = iterator->path().lexically_relative(source);
-            const auto target = destination / relative;
+            const auto target = private_destination / relative;
             const auto entry_status = iterator->symlink_status(error);
             if (error) {
                 break;
@@ -410,6 +511,24 @@ OperationResult copy_exact(const std::filesystem::path &source,
     for (auto iterator = directory_metadata.rbegin(); iterator != directory_metadata.rend(); ++iterator) {
         if (!preserve_metadata(iterator->first, iterator->second, error)) {
             return metadata_failure(destination, owned, error);
+        }
+    }
+
+    if (std::filesystem::is_directory(source_status)) {
+        const std::filesystem::path private_destination = owned.front().path;
+        if (!destination_ownership::publish_private_tree(
+                private_destination, destination, owned, error)) {
+            std::error_code cleanup_error;
+            const bool cleaned = destination_ownership::cleanup_owned(owned, cleanup_error);
+            return failure(error == std::errc::file_exists
+                               ? OperationStatus::DestinationConflict
+                               : OperationEngine::status_for_error(error),
+                           OperationPhase::Execute,
+                           destination,
+                           "The destination was claimed by another writer before publication." +
+                               std::string{cleaned ? " The private copy was removed."
+                                                   : " The private copy was retained for safety."},
+                           !cleaned);
         }
     }
 
@@ -685,17 +804,10 @@ OperationResult TransferOperationEngine::move_item(const std::filesystem::path &
                        "The selected item identity could not be inspected.");
     }
 
-    (void)destination_ownership::rename_no_replace(source, decision.destination, error);
-    if (!error) {
-        const bool destination_is_source =
-            destination_ownership::same_object(decision.destination, moved_identity, error);
-        if (error || !destination_is_source) {
-            return failure(OperationStatus::VerificationFailure,
-                           OperationPhase::Verify,
-                           decision.destination,
-                           "The move completed but the destination identity could not be verified.",
-                           true);
-        }
+    const destination_ownership::OwnedOutput source_output{source, moved_identity};
+    destination_ownership::OwnedOutput moved_output;
+    if (destination_ownership::move_owned_no_replace(
+            source_output, decision.destination, moved_output, error)) {
         if (control != nullptr) {
             control->add_bytes(bytes);
             for (std::uintmax_t index = 0; index < items; ++index) {
@@ -725,14 +837,17 @@ OperationResult TransferOperationEngine::move_item(const std::filesystem::path &
     // A fully verified copy is the cross-volume move commit point. A cancellation
     // observed after that point must not be reported as if no work completed.
     if (!destination_ownership::verify_all(copied_outputs, error)) {
+        std::error_code cleanup_error;
+        const bool cleaned = destination_ownership::cleanup_owned(copied_outputs, cleanup_error);
         return failure(OperationStatus::VerificationFailure,
                        OperationPhase::Verify,
                        decision.destination,
-                       "The copied destination changed before the move could commit.",
-                       true);
+                       "The copied destination changed before the move could commit." +
+                           std::string{cleaned ? " The owned copy was removed."
+                                               : " Concurrently changed destination content was retained."},
+                       !cleaned);
     }
 
-    const destination_ownership::OwnedOutput source_output{source, moved_identity};
     const std::filesystem::path source_quarantine =
         destination_ownership::quarantine_owned(source_output, error);
     if (source_quarantine.empty()) {
@@ -762,12 +877,42 @@ OperationResult TransferOperationEngine::move_item(const std::filesystem::path &
                        !cleaned || restore_error);
     }
 
+    if (!equivalent_copy_shape(source_quarantine, decision.destination, error)) {
+        std::error_code restore_error;
+        (void)destination_ownership::restore_quarantine(
+            source_quarantine, source, restore_error);
+        std::error_code cleanup_error;
+        const bool cleaned = destination_ownership::cleanup_owned(copied_outputs, cleanup_error);
+        return failure(OperationStatus::VerificationFailure,
+                       OperationPhase::Verify,
+                       decision.destination,
+                       "The source changed while it was being copied; the move was not committed." +
+                           std::string{cleaned ? " The owned copy was removed."
+                                               : " Concurrently changed destination content was retained."},
+                       !cleaned || restore_error);
+    }
+
     std::filesystem::remove_all(source_quarantine, error);
     if (error) {
-        return failure(OperationEngine::status_for_error(error),
+        const std::error_code remove_error = error;
+        std::error_code restore_error;
+        const bool remains = path_present(source_quarantine, restore_error);
+        bool restored = false;
+        if (!restore_error && remains) {
+            restored = destination_ownership::restore_quarantine(
+                source_quarantine, source, restore_error);
+        }
+        return failure(OperationEngine::status_for_error(remove_error),
                        OperationPhase::Execute,
                        decision.destination,
-                       "The item was copied, but the original could not be removed: " + error.message(),
+                       "The item was copied, but the original could not be removed: " +
+                           remove_error.message() +
+                           (restore_error
+                                ? " Remaining source data was retained at “" +
+                                      source_quarantine.string() + "”: " + restore_error.message()
+                                : (restored
+                                       ? " Remaining source data was restored to its original name."
+                                       : " No remaining source object required restoration.")),
                        true);
     }
 

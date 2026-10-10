@@ -148,6 +148,52 @@ inline std::filesystem::path quarantine_no_replace(const std::filesystem::path &
     return {};
 }
 
+inline std::filesystem::path create_private_directory(
+    const std::filesystem::path &public_path,
+    OwnedOutputs &outputs,
+    std::error_code &error) noexcept
+{
+    static std::atomic<std::uint64_t> serial{0};
+    for (std::uint32_t attempt = 0; attempt < 1024U; ++attempt) {
+        const std::uint64_t id = serial.fetch_add(1U, std::memory_order_relaxed);
+        const auto private_path =
+            public_path.parent_path() /
+            (".infiltrator-copy-" + std::to_string(static_cast<long long>(::getpid())) +
+             "-" + std::to_string(id));
+        if (!create_directory_exclusive(private_path, error)) {
+            if (error == std::errc::file_exists) {
+                continue;
+            }
+            return {};
+        }
+        if (record(private_path, outputs, error)) {
+            return private_path;
+        }
+        std::error_code cleanup_error;
+        (void)std::filesystem::remove(private_path, cleanup_error);
+        return {};
+    }
+    error = std::make_error_code(std::errc::file_exists);
+    return {};
+}
+
+inline bool publish_private_tree(const std::filesystem::path &private_root,
+                                 const std::filesystem::path &public_root,
+                                 OwnedOutputs &outputs,
+                                 std::error_code &error) noexcept
+{
+    if (!rename_no_replace(private_root, public_root, error)) {
+        return false;
+    }
+    for (OwnedOutput &output : outputs) {
+        const auto relative = output.path.lexically_relative(private_root);
+        output.path = relative.empty() || relative == "."
+                          ? public_root
+                          : public_root / relative;
+    }
+    return true;
+}
+
 inline bool restore_quarantine(const std::filesystem::path &quarantine,
                                const std::filesystem::path &original,
                                std::error_code &error) noexcept
@@ -189,6 +235,27 @@ inline std::filesystem::path quarantine_owned(const OwnedOutput &output,
                           : (restore_error ? restore_error
                                            : std::make_error_code(std::errc::state_not_recoverable));
     return {};
+}
+
+inline bool move_owned_no_replace(const OwnedOutput &source,
+                                  const std::filesystem::path &destination,
+                                  OwnedOutput &moved,
+                                  std::error_code &error) noexcept
+{
+    const std::filesystem::path quarantine = quarantine_owned(source, error);
+    if (quarantine.empty()) {
+        return false;
+    }
+    if (rename_no_replace(quarantine, destination, error)) {
+        moved = OwnedOutput{destination, source.identity};
+        return true;
+    }
+
+    const std::error_code publish_error = error;
+    std::error_code restore_error;
+    (void)restore_quarantine(quarantine, source.path, restore_error);
+    error = restore_error ? restore_error : publish_error;
+    return false;
 }
 
 inline bool restore_owned(const OwnedOutput &output,

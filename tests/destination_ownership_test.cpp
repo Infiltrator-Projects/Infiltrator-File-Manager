@@ -258,7 +258,88 @@ int main()
         return 33;
     }
 
+    const auto private_public = root / "published-tree";
+    ownership::OwnedOutputs private_outputs;
+    const auto private_root =
+        ownership::create_private_directory(private_public, private_outputs, error);
+    if (!require(!private_root.empty() && write_text(private_root / "child", "private"),
+                 "could not create private publication fixture")) {
+        return 34;
+    }
+    if (!require(write_text(private_public, "competing writer"),
+                 "could not claim publication destination")) {
+        return 35;
+    }
+    error.clear();
+    if (!require(!ownership::publish_private_tree(
+                     private_root, private_public, private_outputs, error) &&
+                     error == std::errc::file_exists &&
+                     read_text(private_public) == "competing writer" &&
+                     read_text(private_root / "child") == "private",
+                 "private tree publication displaced a competing writer")) {
+        return 36;
+    }
+
+    const auto move_source = root / "move-source";
+    const auto displaced_move_source = root / "displaced-move-source";
+    const auto move_target = root / "move-target";
+    if (!require(write_text(move_source, "original"), "could not create move fixture")) {
+        return 37;
+    }
+    ownership::OwnedOutputs move_outputs;
+    if (!require(ownership::record(move_source, move_outputs, error),
+                 "could not record move source")) {
+        return 38;
+    }
+    std::filesystem::rename(move_source, displaced_move_source, error);
+    if (!require(!error && write_text(move_source, "replacement"),
+                 "could not swap move source")) {
+        return 39;
+    }
+    ownership::OwnedOutput moved;
+    error.clear();
+    if (!require(!ownership::move_owned_no_replace(
+                     move_outputs.front(), move_target, moved, error) &&
+                     !std::filesystem::exists(move_target) &&
+                     read_text(move_source) == "replacement" &&
+                     read_text(displaced_move_source) == "original",
+                 "identity-safe move displaced a swapped source")) {
+        return 40;
+    }
+
+    const auto remaining_quarantine = root / ".infiltrator-cleanup-partial";
+    const auto restored_source = root / "restored-source";
+    if (!require(std::filesystem::create_directory(remaining_quarantine, error) &&
+                     write_text(remaining_quarantine / "remaining", "data"),
+                 "could not create partial-removal fixture")) {
+        return 41;
+    }
+    error.clear();
+    if (!require(ownership::restore_quarantine(
+                     remaining_quarantine, restored_source, error) &&
+                     read_text(restored_source / "remaining") == "data" &&
+                     !std::filesystem::exists(remaining_quarantine),
+                 "remaining quarantined source data was not restored")) {
+        return 42;
+    }
+
+    const auto retained_quarantine = root / ".infiltrator-cleanup-retained";
+    if (!require(write_text(retained_quarantine, "remaining") &&
+                     write_text(move_target, "new source occupant"),
+                 "could not create unsafe-restoration fixture")) {
+        return 43;
+    }
+    error.clear();
+    if (!require(!ownership::restore_quarantine(
+                     retained_quarantine, move_target, error) &&
+                     error == std::errc::file_exists &&
+                     read_text(retained_quarantine) == "remaining" &&
+                     read_text(move_target) == "new source occupant",
+                 "unsafe source restoration displaced another writer")) {
+        return 44;
+    }
+
     error.clear();
     std::filesystem::remove_all(root, error);
-    return require(!error, "could not remove test root") ? 0 : 34;
+    return require(!error, "could not remove test root") ? 0 : 45;
 }
