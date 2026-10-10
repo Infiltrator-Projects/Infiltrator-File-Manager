@@ -2,7 +2,7 @@
 
 Infiltrator File Manager is a clean-sheet file-management project for InfiltratorOS.
 
-**Current source version:** 0.1.10  
+**Current source version:** 0.1.11  
 **Shared foundation:** exact Infiltratr Common 1.19.38 gitlink, linked through the full Common target on InfiltratorOS/POSIX  
 **Desktop implementation:** C++20 + GTK 4/GIO  
 **Status:** early implementation; deterministic browsing and mutation foundation with multi-selection batch transfer, interruption inspection and verified metadata preservation
@@ -54,7 +54,7 @@ Common's role is documented separately in [`docs/COMMON-INTEGRATION.md`](docs/CO
 
 Product-level acceptance is defined in [`docs/PRODUCT-QUALITY.md`](docs/PRODUCT-QUALITY.md). It establishes the golden user journeys, engineering/interaction/aesthetic evidence, proportional-complexity rule and release-quality gate used to decide whether a tranche actually makes Files better for a person.
 
-## Current 0.1.10 implementation
+## Current 0.1.11 implementation
 
 The executable is `infiltrator-file-manager`, presented to the user as **Files**.
 
@@ -115,7 +115,7 @@ It currently provides:
 - the full `InfiltratrCommon::Common` build dependency on InfiltratorOS/POSIX, making Common's POSIX/state/I/O contracts available to the non-UI layers as they are introduced; and
 - a hosted build/test gate on every main-branch update, including batch preflight/policy/progress/cancellation, interrupted-journal recovery and permission/timestamp preservation qualification.
 
-Metadata preservation is deliberately honest in 0.1.10: permissions and modification timestamps are qualified for ordinary copy/cross-volume transfer paths, while ownership, ACLs, extended attributes, sparse-file preservation and symlink metadata remain future capability work. Multi-selection batch Copy/Move is present; destructive batch Trash/Delete is not yet claimed.
+Metadata preservation is deliberately honest in 0.1.11: permissions and modification timestamps are qualified for ordinary copy/cross-volume transfer paths, while ownership, ACLs, extended attributes, sparse-file preservation and symlink metadata remain future capability work. Multi-selection batch Copy/Move is present; destructive batch Trash/Delete is not yet claimed.
 
 The next implementation work continues the richer file/object/capability model and remote-location/provider handling; mounted/removable discovery is already part of the browsing foundation rather than a reason to add ad-hoc controls.
 
@@ -134,7 +134,7 @@ ctest --test-dir build --output-on-failure
 ./build/infiltrator-file-manager
 ```
 
-The build rejects a missing, wrong-version or wrong-commit Infiltratr Common checkout. Version 0.1.10 is pinned to Common 1.19.38 at commit `04b5e219924ec0e65ef9d254c114fad4de0abd29`.
+The build rejects a missing, wrong-version or wrong-commit Infiltratr Common checkout. Version 0.1.11 is pinned to Common 1.19.38 at commit `04b5e219924ec0e65ef9d254c114fad4de0abd29`.
 
 ## Design documents
 
