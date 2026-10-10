@@ -17,8 +17,8 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-set(INFILTRATR_COMMON_EXPECTED_VERSION "1.19.38")
-set(INFILTRATR_COMMON_EXPECTED_COMMIT "04b5e219924ec0e65ef9d254c114fad4de0abd29")
+set(INFILTRATR_COMMON_EXPECTED_VERSION "1.19.39")
+set(INFILTRATR_COMMON_EXPECTED_COMMIT "47c7f6fbe3560a7bd4b432c5cef2f7d0ab5cf419")
 set(INFILTRATR_COMMON_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/infiltratr-common")
 
 if(NOT EXISTS "${INFILTRATR_COMMON_DIR}/VERSION")
@@ -104,6 +104,10 @@ if(BUILD_TESTING)
     add_executable(detail-metadata-test
         tests/detail_metadata_test.cpp
         src/ui/detail_metadata.cpp)
+    add_library(calendar-date-test-fixture MODULE tests/calendar_date_fixture.c)
+    target_compile_definitions(detail-metadata-test PRIVATE
+        CALENDAR_DATE_FIXTURE_PATH="$<TARGET_FILE:calendar-date-test-fixture>")
+    add_dependencies(detail-metadata-test calendar-date-test-fixture)
     target_link_libraries(detail-metadata-test PRIVATE infiltrator-files-core)
     add_test(NAME detail-metadata COMMAND detail-metadata-test)
 
