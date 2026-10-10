@@ -425,7 +425,7 @@ OperationResult copy_exact(const std::filesystem::path &source,
         return failure(OperationStatus::VerificationFailure,
                        OperationPhase::Verify,
                        destination,
-                       "The transfer completed but the destination identity could not be verified." +
+                       std::string{"The transfer completed but the destination identity could not be verified."} +
                            (cleaned
                                 ? " The owned partial destination was removed."
                                 : " Non-owned or concurrently changed destination content was retained."),
