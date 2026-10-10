@@ -540,12 +540,19 @@ std::vector<std::string> BatchItemOperationController::selected_sources() const
         return sources;
     }
 
-    const guint count = g_list_model_get_n_items(G_LIST_MODEL(directory_list_));
+    // Selection positions belong to the presentation model. Once Detail sorting
+    // is active, indexing the raw GtkDirectoryList with those positions could
+    // operate on the wrong files, so selected items must come from that model.
+    GListModel *model = gtk_multi_selection_get_model(selection_);
+    if (model == nullptr) {
+        return sources;
+    }
+    const guint count = g_list_model_get_n_items(model);
     for (guint index = 0U; index < count; ++index) {
         if (!gtk_selection_model_is_selected(GTK_SELECTION_MODEL(selection_), index)) {
             continue;
         }
-        GFileInfo *info = G_FILE_INFO(g_list_model_get_item(G_LIST_MODEL(directory_list_), index));
+        GFileInfo *info = G_FILE_INFO(g_list_model_get_item(model, index));
         if (info == nullptr) {
             continue;
         }
