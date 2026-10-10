@@ -86,9 +86,32 @@ int compare_optional_u64(const bool left_present,
     return 0;
 }
 
-std::string locale_time_text(GDateTime *local)
+std::string locale_time_text(GDateTime *local, const bool show_seconds)
 {
-    char *formatted = g_date_time_format(local, "%X");
+    if (local == nullptr) {
+        return "—";
+    }
+
+    if (show_seconds) {
+        char *formatted = g_date_time_format(local, "%X");
+        std::string result = formatted != nullptr && formatted[0] != '\0'
+            ? formatted : "—";
+        g_free(formatted);
+        return result;
+    }
+
+    // %X owns the locale's 12/24-hour convention, but many locales bake
+    // seconds into it. Infer only that convention, then construct a minute
+    // precision clock so System Settings' show-seconds policy remains binding.
+    char *locale_clock = g_date_time_format(local, "%X");
+    char *meridiem = g_date_time_format(local, "%p");
+    const bool twelve_hour = locale_clock != nullptr && meridiem != nullptr &&
+        meridiem[0] != '\0' && std::strstr(locale_clock, meridiem) != nullptr;
+    g_free(locale_clock);
+    g_free(meridiem);
+
+    char *formatted = g_date_time_format(
+        local, twelve_hour ? "%I:%M %p" : "%H:%M");
     std::string result = formatted != nullptr && formatted[0] != '\0'
         ? formatted : "—";
     g_free(formatted);
@@ -102,25 +125,28 @@ std::string policy_time_text(GDateTime *local, const guint64 seconds)
     const InfiltratrIoResult loaded =
         infiltratr_temporal_posix_policy_load(&policy, &found);
 
-    // "standard" deliberately belongs to the platform locale. An explicit
-    // System Settings mode (including standard-12/standard-24) is rendered by
-    // Common so Files cannot silently substitute its own 24-hour convention.
-    if (loaded != INFILTRATR_IO_OK || !found ||
-        std::strcmp(policy.clock_mode, "standard") == 0) {
-        return locale_time_text(local);
+    // "standard" deliberately belongs to the platform locale, but the
+    // Common-owned show-seconds setting still applies to that presentation.
+    // Explicit modes (including standard-12/standard-24) are rendered by
+    // Common so Files cannot silently substitute its own clock convention.
+    if (loaded != INFILTRATR_IO_OK || !found) {
+        return locale_time_text(local, true);
+    }
+    if (std::strcmp(policy.clock_mode, "standard") == 0) {
+        return locale_time_text(local, policy.show_seconds);
     }
 
     constexpr guint64 kMicrosecondsPerSecond = 1000000U;
     if (seconds > static_cast<guint64>(std::numeric_limits<gint64>::max()) /
                       kMicrosecondsPerSecond) {
-        return locale_time_text(local);
+        return locale_time_text(local, policy.show_seconds);
     }
 
     const gint64 offset_microseconds = g_date_time_get_utc_offset(local);
     const gint64 offset_seconds = offset_microseconds / G_TIME_SPAN_SECOND;
     if (offset_seconds < std::numeric_limits<std::int32_t>::min() ||
         offset_seconds > std::numeric_limits<std::int32_t>::max()) {
-        return locale_time_text(local);
+        return locale_time_text(local, policy.show_seconds);
     }
 
     char buffer[128]{};
@@ -138,7 +164,7 @@ std::string policy_time_text(GDateTime *local, const guint64 seconds)
         sizeof(buffer),
         &length);
     if (!formatted || length == 0U || buffer[0] == '\0') {
-        return locale_time_text(local);
+        return locale_time_text(local, policy.show_seconds);
     }
     return buffer;
 }

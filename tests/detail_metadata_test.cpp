@@ -107,6 +107,45 @@ int main()
         return 9;
     }
 
+    // The locale-owned standard clock must still obey System Settings'
+    // seconds toggle. If this locale's %X includes seconds, the rendered
+    // standard timestamp must no longer end in that unmodified %X value.
+    std::strcpy(policy.clock_mode, "standard");
+    policy.show_seconds = false;
+    if (infiltratr_temporal_posix_policy_save(&policy) != 0) {
+        g_free(config_home);
+        g_object_unref(file);
+        return 10;
+    }
+    g_file_info_set_attribute_uint64(file, G_FILE_ATTRIBUTE_TIME_MODIFIED, 46837U);
+    const std::string standard_without_seconds = detail_modified_text(file);
+    GDateTime *standard_local = g_date_time_new_from_unix_local(46837);
+    if (standard_local == nullptr) {
+        g_free(config_home);
+        g_object_unref(file);
+        return 11;
+    }
+    char *locale_clock = g_date_time_format(standard_local, "%X");
+    char *locale_second = g_date_time_format(standard_local, "%S");
+    const bool locale_shows_seconds =
+        locale_clock != nullptr && locale_second != nullptr &&
+        locale_second[0] != '\0' && std::strstr(locale_clock, locale_second) != nullptr;
+    const std::string locale_clock_text = locale_clock != nullptr ? locale_clock : "";
+    const bool still_uses_unmodified_locale_clock = locale_shows_seconds &&
+        standard_without_seconds.size() >= locale_clock_text.size() &&
+        standard_without_seconds.compare(
+            standard_without_seconds.size() - locale_clock_text.size(),
+            locale_clock_text.size(), locale_clock_text) == 0;
+    g_free(locale_clock);
+    g_free(locale_second);
+    g_date_time_unref(standard_local);
+    if (standard_without_seconds.empty() || standard_without_seconds == "—" ||
+        still_uses_unmodified_locale_clock) {
+        g_free(config_home);
+        g_object_unref(file);
+        return 12;
+    }
+
     g_free(config_home);
     g_object_unref(file);
     return 0;

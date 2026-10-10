@@ -268,8 +268,8 @@ void FileManagerWindow::build_ui(GtkApplication *application)
 
     GtkSortListModel *sort_model =
         gtk_sort_list_model_new(G_LIST_MODEL(directory_list_), nullptr);
+    // gtk_multi_selection_new() takes ownership of the sort-model reference.
     selection_ = gtk_multi_selection_new(G_LIST_MODEL(sort_model));
-    g_object_unref(sort_model);
 
     // Single-item operation controllers still use the authoritative directory
     // model directly. Selection synchronization maps by GFileInfo identity/name
