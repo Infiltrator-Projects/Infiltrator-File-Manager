@@ -399,7 +399,7 @@ OperationResult RecoveryOperationEngine::restore_item(
                           original_path,
                           "A safe restore replacement staging path could not be reserved.");
         }
-        std::filesystem::rename(original_path, backup, error);
+        (void)destination_ownership::rename_no_replace(original_path, backup, error);
         if (error) {
             g_object_unref(trash_file);
             return result(OperationEngine::status_for_error(error),
