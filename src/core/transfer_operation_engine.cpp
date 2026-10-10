@@ -251,14 +251,20 @@ bool preserve_metadata(const std::filesystem::path &source,
 }
 
 OperationResult metadata_failure(const std::filesystem::path &destination,
+                                 destination_ownership::OwnedOutputs &owned,
                                  const std::error_code &error)
 {
+    std::error_code cleanup_error;
+    const bool cleaned = destination_ownership::cleanup_owned(owned, cleanup_error);
     return failure(OperationStatus::VerificationFailure,
                    OperationPhase::Verify,
                    destination,
-                   "The contents were copied, but permissions or modification time could not be preserved: " +
-                       error.message(),
-                   true);
+                   "The transfer could not preserve permissions or modification time: " +
+                       error.message() +
+                       (cleaned
+                            ? " The owned partial destination was removed."
+                            : " Non-owned or concurrently changed destination content was retained."),
+                   !cleaned);
 }
 OperationResult copy_exact(const std::filesystem::path &source,
                            const std::filesystem::path &destination,
@@ -314,7 +320,7 @@ OperationResult copy_exact(const std::filesystem::path &source,
             file_metadata.emplace_back(source, destination);
         }
     } else if (std::filesystem::is_directory(source_status)) {
-        std::filesystem::create_directory(destination, error);
+        (void)destination_ownership::create_directory_exclusive(destination, error);
         if (!error) {
             (void)destination_ownership::record(destination, owned, error);
         }
@@ -340,7 +346,7 @@ OperationResult copy_exact(const std::filesystem::path &source,
                 break;
             }
             if (std::filesystem::is_directory(entry_status)) {
-                std::filesystem::create_directory(target, error);
+                (void)destination_ownership::create_directory_exclusive(target, error);
                 if (!error) {
                     (void)destination_ownership::record(target, owned, error);
                 }
@@ -365,8 +371,8 @@ OperationResult copy_exact(const std::filesystem::path &source,
                 if (!copy_regular_file(iterator->path(), target, control, owned, error)) {
                     if (control != nullptr && control->cancelled()) {
                         std::error_code cleanup_error;
-                        std::filesystem::remove_all(destination, cleanup_error);
-                        return cancelled_result(destination, static_cast<bool>(cleanup_error));
+                        const bool cleaned = destination_ownership::cleanup_owned(owned, cleanup_error);
+                        return cancelled_result(destination, !cleaned);
                     }
                 } else {
                     file_metadata.emplace_back(iterator->path(), target);
@@ -402,23 +408,28 @@ OperationResult copy_exact(const std::filesystem::path &source,
 
     for (const auto &entry : file_metadata) {
         if (!preserve_metadata(entry.first, entry.second, error)) {
-            return metadata_failure(destination, error);
+            return metadata_failure(destination, owned, error);
         }
     }
     for (auto iterator = directory_metadata.rbegin(); iterator != directory_metadata.rend(); ++iterator) {
         if (!preserve_metadata(iterator->first, iterator->second, error)) {
-            return metadata_failure(destination, error);
+            return metadata_failure(destination, owned, error);
         }
     }
 
     const bool destination_is_owned =
         !owned.empty() && destination_ownership::same_object(destination, owned.front().identity, error);
     if (!destination_is_owned || error) {
+        std::error_code cleanup_error;
+        const bool cleaned = destination_ownership::cleanup_owned(owned, cleanup_error);
         return failure(OperationStatus::VerificationFailure,
                        OperationPhase::Verify,
                        destination,
-                       "The transfer completed but the destination could not be verified.",
-                       true);
+                       "The transfer completed but the destination identity could not be verified." +
+                           (cleaned
+                                ? " The owned partial destination was removed."
+                                : " Non-owned or concurrently changed destination content was retained."),
+                       !cleaned);
     }
 
     return OperationResult{OperationStatus::Success,
@@ -712,9 +723,7 @@ OperationResult TransferOperationEngine::move_item(const std::filesystem::path &
         return copied;
     }
     if (control != nullptr && control->cancelled()) {
-        std::error_code cleanup_error;
-        std::filesystem::remove_all(decision.destination, cleanup_error);
-        return cancelled_result(decision.destination, static_cast<bool>(cleanup_error));
+        return cancelled_result(decision.destination, true);
     }
 
     std::filesystem::remove_all(source, error);
