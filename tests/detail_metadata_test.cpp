@@ -10,6 +10,7 @@
 using infiltrator::files::detail_compare_modified;
 using infiltrator::files::detail_compare_name;
 using infiltrator::files::detail_compare_size;
+using infiltrator::files::detail_locale_time_format_without_seconds;
 using infiltrator::files::detail_modified_text;
 using infiltrator::files::detail_size_text;
 using infiltrator::files::detail_type_text;
@@ -144,6 +145,33 @@ int main()
         g_free(config_home);
         g_object_unref(file);
         return 12;
+    }
+
+    // Exercise locale pattern reduction directly so qualification does not
+    // depend on optional locales being installed on the CI host. Field order,
+    // AM/PM placement, separators and attached localized units must survive.
+    const bool locale_patterns_ok =
+        detail_locale_time_format_without_seconds("%H:%M:%S", "") ==
+            "%H:%M" &&
+        detail_locale_time_format_without_seconds("%I:%M:%S %p", "") ==
+            "%I:%M %p" &&
+        detail_locale_time_format_without_seconds("%p %I:%M:%S", "") ==
+            "%p %I:%M" &&
+        detail_locale_time_format_without_seconds("%H時%M分%S秒", "") ==
+            "%H時%M分" &&
+        detail_locale_time_format_without_seconds("%p %I時%M分%S秒", "") ==
+            "%p %I時%M分" &&
+        detail_locale_time_format_without_seconds("%r", "%I:%M:%S %p") ==
+            "%I:%M %p" &&
+        detail_locale_time_format_without_seconds("%T", "") == "%H:%M" &&
+        detail_locale_time_format_without_seconds("%H:%M:%OS", "") ==
+            "%H:%M" &&
+        detail_locale_time_format_without_seconds("%H:%M:%S Uhr", "") ==
+            "%H:%M Uhr";
+    if (!locale_patterns_ok) {
+        g_free(config_home);
+        g_object_unref(file);
+        return 13;
     }
 
     g_free(config_home);
