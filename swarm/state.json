@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "revision": 12,
+  "revision": 13,
   "mode": "WORK",
-  "updated_at": "2026-10-10T12:52:05.260Z",
+  "updated_at": "2026-10-10T12:55:59.134Z",
   "baseline": {
     "main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
     "version": "0.1.16",
@@ -77,11 +77,11 @@
   },
   "heartbeats": {
     "Architect": {
-      "at": "2026-10-10T11:44:45.317Z",
-      "status": "startup communication check verified",
-      "observed_revision": 0,
-      "observed_head": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
-      "next_action": "Builder must verify Architect comment 6097146411 and append the next ordered receipt."
+      "at": "2026-10-10T12:55:59.134Z",
+      "status": "Active destination-ownership stroke preserved; BUILDING under live Builder lease with five unresolved review threads",
+      "observed_revision": 12,
+      "observed_head": "b4a48717cdcae598a6dab92ec538700769c774d7",
+      "next_action": "Builder must complete the existing PR #10 hard set and Release-effective evidence; do not nominate another package until this stroke is reviewed, integrated and published."
     },
     "Builder": {
       "at": "2026-10-10T12:20:17.319Z",
