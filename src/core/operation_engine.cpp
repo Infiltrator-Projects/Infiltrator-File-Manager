@@ -271,26 +271,35 @@ OperationResult OperationEngine::rename_item(const std::filesystem::path &source
                        "The selected item identity could not be inspected.");
     }
 
-    (void)destination_ownership::rename_no_replace(source, destination, error);
-    if (error) {
+    const destination_ownership::OwnedOutput source_output{source, moved_identity};
+    destination_ownership::OwnedOutput moved_output;
+    std::filesystem::path retained_quarantine;
+    if (!destination_ownership::move_owned_no_replace(
+            source_output, destination, moved_output, error, &retained_quarantine)) {
         const OperationStatus status = status_for_error(error);
         std::string message;
-        switch (status) {
-        case OperationStatus::PermissionFailure:
+        if (status == OperationStatus::DestinationConflict) {
+            message = "An item named " + quoted_name(destination) + " already exists.";
+        } else if (status == OperationStatus::PermissionFailure) {
             message = "You do not have permission to rename " + quoted_name(source) + ".";
-            break;
-        case OperationStatus::ReadOnlyLocation:
+        } else if (status == OperationStatus::ReadOnlyLocation) {
             message = "This location is read-only.";
-            break;
-        default:
+        } else {
             message = "The item could not be renamed: " + error.message();
-            break;
         }
-        return failure(status, OperationPhase::Execute, destination, std::move(message));
+        if (!retained_quarantine.empty()) {
+            message += " The original item was retained safely at “" +
+                       retained_quarantine.string() + "”.";
+        }
+        return failure(status,
+                       OperationPhase::Execute,
+                       destination,
+                       std::move(message),
+                       !retained_quarantine.empty());
     }
 
     const bool destination_is_source =
-        destination_ownership::same_object(destination, moved_identity, error);
+        destination_ownership::same_object(destination, moved_output.identity, error);
     if (error || !destination_is_source) {
         return failure(OperationStatus::VerificationFailure,
                        OperationPhase::Verify,
