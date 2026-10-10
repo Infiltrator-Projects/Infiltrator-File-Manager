@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "revision": 5,
+  "revision": 6,
   "mode": "VERIFY_HANDOFFS",
-  "updated_at": "2026-10-10T12:07:05.496Z",
+  "updated_at": "2026-10-10T12:09:38.728Z",
   "baseline": {
     "main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
     "version": "0.1.16",
@@ -70,11 +70,11 @@
       "next_action": "Fixer must verify Reviewer comment 6097221437 and append the next ordered receipt."
     },
     "Integrator": {
-      "at": "2026-10-10T12:04:36.345Z",
-      "status": "blocked: Fixer startup receipt missing after bounded rechecks",
-      "observed_revision": 3,
+      "at": "2026-10-10T12:09:38.728Z",
+      "status": "startup communication check verified",
+      "observed_revision": 5,
       "observed_head": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
-      "next_action": "Fixer must verify Reviewer comment 6097221437, post its nonce receipt, and append it to state before Integrator can continue."
+      "next_action": "Foreground HAL must verify all five independent receipts before switching mode to WORK."
     },
     "Fixer": {
       "at": "2026-10-10T12:07:05.496Z",
@@ -138,6 +138,16 @@
         "previous_comment_id": 6097221437,
         "comment_id": 6097314262,
         "observed_revision": 4,
+        "observed_main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f"
+      },
+      {
+        "role": "Integrator",
+        "nonce": "files-swarm-20261010-1136",
+        "at": "2026-10-10T12:09:38.728Z",
+        "previous_role": "Fixer",
+        "previous_comment_id": 6097314262,
+        "comment_id": 6097333902,
+        "observed_revision": 5,
         "observed_main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f"
       }
     ]
