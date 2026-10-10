@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "revision": 0,
+  "revision": 1,
   "mode": "VERIFY_HANDOFFS",
-  "updated_at": "2026-10-10T11:36:00Z",
+  "updated_at": "2026-10-10T11:44:45.317Z",
   "baseline": {
     "main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
     "version": "0.1.16",
@@ -47,7 +47,15 @@
     "blocker": null
   },
   "lease": null,
-  "heartbeats": {},
+  "heartbeats": {
+    "Architect": {
+      "at": "2026-10-10T11:44:45.317Z",
+      "status": "startup communication check verified",
+      "observed_revision": 0,
+      "observed_head": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
+      "next_action": "Builder must verify Architect comment 6097146411 and append the next ordered receipt."
+    }
+  },
   "last_transition": {
     "role": "HAL",
     "from": null,
@@ -63,6 +71,17 @@
       "Fixer",
       "Integrator"
     ],
-    "receipts": []
+    "receipts": [
+      {
+        "role": "Architect",
+        "nonce": "files-swarm-20261010-1136",
+        "at": "2026-10-10T11:44:45.317Z",
+        "previous_role": null,
+        "previous_comment_id": null,
+        "comment_id": 6097146411,
+        "observed_revision": 0,
+        "observed_main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f"
+      }
+    ]
   }
 }
