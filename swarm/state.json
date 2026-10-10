@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "revision": 25,
+  "revision": 26,
   "mode": "WORK",
-  "updated_at": "2026-10-10T14:26:00.603Z",
+  "updated_at": "2026-10-10T14:45:33.169Z",
   "baseline": {
     "main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
     "version": "0.1.16",
@@ -11,7 +11,7 @@
   },
   "stroke": {
     "id": "files-20261010-destination-ownership",
-    "phase": "FIX_REQUIRED",
+    "phase": "FIXING",
     "package": {
       "title": "Protect destination ownership during transfers and replacement rollback",
       "golden_journeys": [
@@ -46,7 +46,7 @@
       "base_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
       "head_sha": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
       "draft": false,
-      "status": "FIX_REQUIRED: independent Integrator post-review verification and exact-head Codex review found seven unresolved findings on f5f2b5de; no merge.",
+      "status": "FIXING: Fixer claimed the complete seven-finding exact-head hard set on PR #10; implementation and qualification in progress.",
       "changed_files": [
         "README.md",
         "src/core/destination_ownership.hpp",
@@ -266,7 +266,11 @@
     "release": null,
     "blocker": null
   },
-  "lease": null,
+  "lease": {
+    "role": "Fixer",
+    "token": "fixer-destination-ownership-20261010T144533169Z",
+    "expires_at": "2026-10-10T15:30:33.169Z"
+  },
   "heartbeats": {
     "Architect": {
       "at": "2026-10-10T14:02:19.099Z",
@@ -297,18 +301,18 @@
       "next_action": "Fixer must correct the complete seven-finding post-review set on PR #10, resolve all exact-head threads, rerun Release-effective tests/CI, and return the refreshed head to independent review/integration verification."
     },
     "Fixer": {
-      "at": "2026-10-10T13:50:01.289Z",
-      "status": "INTEGRATE_READY; complete hard set resolved, exact-head CI green, zero unresolved threads",
-      "observed_revision": 19,
+      "at": "2026-10-10T14:45:33.169Z",
+      "status": "Claimed PR #10 at f5f2b5de to close the complete seven-finding exact-head hard set; implementation starting",
+      "observed_revision": 25,
       "observed_head": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
-      "next_action": "Integrator must independently inspect the post-review delta, confirm exact-head CI and zero unresolved hard threads, then integrate without optional churn."
+      "next_action": "Implement all seven fixes on the same PR, add deterministic Release-effective coverage, rerun exact-head CI, and resolve every finding with evidence."
     }
   },
   "last_transition": {
-    "role": "Integrator",
-    "from": "INTEGRATING",
-    "to": "FIX_REQUIRED",
-    "reason": "Independent post-review verification plus exact-head Codex review PRR_kwDOU9Z1nc8AAAABRpWjMA found seven unresolved correctness/recovery/test findings on f5f2b5de; integration gates fail despite green run 38057074480."
+    "role": "Fixer",
+    "from": "FIX_REQUIRED",
+    "to": "FIXING",
+    "reason": "Claimed the complete seven-finding exact-head Integrator/Codex hard set for correction on the existing PR #10."
   },
   "health": {
     "nonce": "files-swarm-20261010-1136",
