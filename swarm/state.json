@@ -1,0 +1,68 @@
+{
+  "schema_version": 2,
+  "revision": 0,
+  "mode": "VERIFY_HANDOFFS",
+  "updated_at": "2026-10-10T11:36:00Z",
+  "baseline": {
+    "main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
+    "version": "0.1.16",
+    "release_verified": true,
+    "evidence": "https://github.com/Infiltrator-Projects/Infiltrator-File-Manager/issues/2#issuecomment-6096507117"
+  },
+  "stroke": {
+    "id": "files-20261010-destination-ownership",
+    "phase": "BUILD_READY",
+    "package": {
+      "title": "Protect destination ownership during transfers and replacement rollback",
+      "golden_journeys": [
+        "GJ-05",
+        "GJ-06",
+        "GJ-07",
+        "GJ-08"
+      ],
+      "scope": [
+        "No-clobber Rename/Move/Copy/Keep Both when a competing writer wins the destination name.",
+        "Created directory cleanup must only remove output owned by this operation.",
+        "Replacement rollback must not remove or overwrite a destination another actor changed after staging."
+      ],
+      "acceptance": [
+        "Deterministic competing-writer fixtures demonstrate the unsafe old behavior and verify the corrected behavior in Release.",
+        "Existing ordinary and cross-volume success/conflict/cancellation/recovery behavior remains qualified.",
+        "Failed operations leave competitor data intact and report honest conflict or verification failure.",
+        "Use qualified Common primitives where appropriate; preserve core/UI/filesystem authority.",
+        "Truthful docs state the scope of protection and remaining journal/session qualification gaps."
+      ],
+      "out_of_scope": [
+        "New journal data format or complete live-session/durability redesign.",
+        "Unrelated UI features, broad rewrites, semantic/AI work."
+      ],
+      "source_review": "https://github.com/Infiltrator-Projects/Infiltrator-File-Manager/issues/2#issuecomment-6096430693"
+    },
+    "base_main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
+    "candidate": null,
+    "review": null,
+    "hard_findings": [],
+    "integration": null,
+    "release": null,
+    "blocker": null
+  },
+  "lease": null,
+  "heartbeats": {},
+  "last_transition": {
+    "role": "HAL",
+    "from": null,
+    "to": "BUILD_READY",
+    "reason": "Shannon authorized swarm repair; first bounded product package is nominated from the whole-project review."
+  },
+  "health": {
+    "nonce": "files-swarm-20261010-1136",
+    "check_order": [
+      "Architect",
+      "Builder",
+      "Reviewer",
+      "Fixer",
+      "Integrator"
+    ],
+    "receipts": []
+  }
+}
