@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "revision": 22,
+  "revision": 23,
   "mode": "WORK",
-  "updated_at": "2026-10-10T13:56:39.301Z",
+  "updated_at": "2026-10-10T14:02:19.099Z",
   "baseline": {
     "main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
     "version": "0.1.16",
@@ -269,11 +269,11 @@
   "lease": null,
   "heartbeats": {
     "Architect": {
-      "at": "2026-10-10T12:55:59.134Z",
-      "status": "Active destination-ownership stroke preserved; BUILDING under live Builder lease with five unresolved review threads",
-      "observed_revision": 12,
-      "observed_head": "b4a48717cdcae598a6dab92ec538700769c774d7",
-      "next_action": "Builder must complete the existing PR #10 hard set and Release-effective evidence; do not nominate another package until this stroke is reviewed, integrated and published."
+      "at": "2026-10-10T14:02:19.099Z",
+      "status": "Active destination-ownership stroke preserved; FIX_REQUIRED with seven unresolved exact-head hard review threads; no competing package nominated",
+      "observed_revision": 22,
+      "observed_head": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
+      "next_action": "Fixer must retain PR #10, correct the complete seven-finding hard set, resolve every exact-head thread with evidence, and rerun exact-head Release CI before renewed review/integration."
     },
     "Builder": {
       "at": "2026-10-10T13:21:52.442Z",
