@@ -94,6 +94,27 @@ int main()
         return 9;
     }
 
+    const fs::path previous_directory = fs::current_path(cleanup_error);
+    if (cleanup_error) {
+        fs::remove_all(root, cleanup_error);
+        return 90;
+    }
+    fs::current_path(root, cleanup_error);
+    if (cleanup_error || !write_text("relative-source.txt", "relative rename\n")) {
+        fs::current_path(previous_directory, cleanup_error);
+        fs::remove_all(root, cleanup_error);
+        return 91;
+    }
+    const auto relative_rename = engine.rename_item("relative-source.txt", "relative-destination.txt");
+    const bool relative_rename_ok =
+        relative_rename.ok() && relative_rename.changed &&
+        !fs::exists("relative-source.txt") && fs::is_regular_file("relative-destination.txt");
+    fs::current_path(previous_directory, cleanup_error);
+    if (cleanup_error || !relative_rename_ok) {
+        fs::remove_all(root, cleanup_error);
+        return 92;
+    }
+
     const fs::path copy_destination = root / "copy-destination";
     fs::create_directories(copy_destination);
     const auto copy_success = engine.copy_item(renamed, copy_destination);
