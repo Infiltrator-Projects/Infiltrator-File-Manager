@@ -93,46 +93,11 @@ inline bool record_fd(const std::filesystem::path &path,
     return true;
 }
 
-// POSIX has no fully general directory equivalent of RENAME_NOREPLACE. When
-// the Linux primitive is unavailable, hard-link publication is a safe
-// no-clobber fallback for non-directories. Directory callers fail closed
-// rather than reverting to a check-then-rename race.
-inline bool rename_no_replace_non_directory_fallback(
-    const std::filesystem::path &source,
-    const std::filesystem::path &destination,
-    std::error_code &error) noexcept
-{
-    struct stat source_status {};
-    if (::lstat(source.c_str(), &source_status) != 0) {
-        error = std::error_code(errno, std::generic_category());
-        return false;
-    }
-    if (S_ISDIR(source_status.st_mode)) {
-        error = std::make_error_code(std::errc::operation_not_supported);
-        return false;
-    }
-
-    if (::linkat(AT_FDCWD,
-                 source.c_str(),
-                 AT_FDCWD,
-                 destination.c_str(),
-                 0) != 0) {
-        error = std::error_code(errno, std::generic_category());
-        return false;
-    }
-
-    if (::unlink(source.c_str()) == 0) {
-        error.clear();
-        return true;
-    }
-
-    // Both names still reference the same object. Do not race another writer
-    // by unlinking the destination after a pathname-only recheck; report the
-    // partial namespace state conservatively instead of risking data loss.
-    error = std::error_code(errno, std::generic_category());
-    return false;
-}
-
+// There is no generic POSIX directory equivalent of RENAME_NOREPLACE, and a
+// link/unlink emulation can unlink a concurrently replaced source. If the
+// platform/filesystem cannot provide atomic no-clobber rename, fail closed.
+// A future provider may supply an equally strong primitive, but this layer
+// must never weaken the destination-ownership contract to preserve support.
 inline bool rename_no_replace(const std::filesystem::path &source,
                               const std::filesystem::path &destination,
                               std::error_code &error) noexcept
@@ -154,11 +119,9 @@ inline bool rename_no_replace(const std::filesystem::path &source,
         error = std::error_code(rename_error, std::generic_category());
         return false;
     }
-
-    return rename_no_replace_non_directory_fallback(source, destination, error);
-#else
-    return rename_no_replace_non_directory_fallback(source, destination, error);
 #endif
+    error = std::make_error_code(std::errc::operation_not_supported);
+    return false;
 }
 
 inline bool create_directory_exclusive(const std::filesystem::path &path,
@@ -341,11 +304,14 @@ inline bool destination_is_different_device(const std::filesystem::path &source,
 {
     struct stat source_status {};
     struct stat parent_status {};
+    const std::filesystem::path parent = destination.parent_path().empty()
+                                             ? std::filesystem::path{"."}
+                                             : destination.parent_path();
     if (::lstat(source.c_str(), &source_status) != 0) {
         error = std::error_code(errno, std::generic_category());
         return false;
     }
-    if (::stat(destination.parent_path().c_str(), &parent_status) != 0) {
+    if (::stat(parent.c_str(), &parent_status) != 0) {
         error = std::error_code(errno, std::generic_category());
         return false;
     }
