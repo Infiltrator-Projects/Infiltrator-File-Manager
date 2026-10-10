@@ -14,7 +14,8 @@ namespace infiltrator::files {
 
 // Testable seam for the POSIX locale time pattern used by Standard time. The
 // resulting strftime pattern keeps the locale's field order, separators and
-// localized unit text while removing only the seconds field.
+// localized unit text while removing only the seconds field selected off by
+// the shared System Settings temporal policy.
 [[nodiscard]] std::string detail_locale_time_format_without_seconds(
     std::string_view time_format,
     std::string_view ampm_format);
