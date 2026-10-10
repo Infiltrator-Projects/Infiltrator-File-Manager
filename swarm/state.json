@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "revision": 20,
+  "revision": 21,
   "mode": "WORK",
-  "updated_at": "2026-10-10T13:50:01.289Z",
+  "updated_at": "2026-10-10T13:54:12.438Z",
   "baseline": {
     "main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
     "version": "0.1.16",
@@ -11,7 +11,7 @@
   },
   "stroke": {
     "id": "files-20261010-destination-ownership",
-    "phase": "INTEGRATE_READY",
+    "phase": "INTEGRATING",
     "package": {
       "title": "Protect destination ownership during transfers and replacement rollback",
       "golden_journeys": [
@@ -166,7 +166,11 @@
     "release": null,
     "blocker": null
   },
-  "lease": null,
+  "lease": {
+    "role": "Integrator",
+    "token": "integrator-destination-ownership-20261010T135412Z",
+    "expires_at": "2026-10-10T14:39:12.438Z"
+  },
   "heartbeats": {
     "Architect": {
       "at": "2026-10-10T12:55:59.134Z",
@@ -190,11 +194,11 @@
       "next_action": "Fixer must claim PR #10, correct the complete five-finding hard set on the same branch, add Release-effective failure/cancellation/race tests, resolve all six threads with evidence, and rerun exact-head CI."
     },
     "Integrator": {
-      "at": "2026-10-10T12:52:05.260Z",
-      "status": "BUILDING under live Builder lease; integration gates not satisfied",
-      "observed_revision": 11,
-      "observed_head": "b4a48717cdcae598a6dab92ec538700769c774d7",
-      "next_action": "Builder must finish the complete five-thread hard set on PR #10 and transition to REVIEW_READY; Reviewer must then submit a formal exact-head review before any Integrator action."
+      "at": "2026-10-10T13:54:12.438Z",
+      "status": "Claimed exact-head integration verification for PR #10",
+      "observed_revision": 20,
+      "observed_head": "f5f2b5de58abb0d65d0a8814b79706536922e7a3",
+      "next_action": "Independently inspect the complete post-review delta, confirm exact-head CI and resolved hard set, then merge only with expected-head protection if every gate remains satisfied."
     },
     "Fixer": {
       "at": "2026-10-10T13:50:01.289Z",
@@ -205,10 +209,10 @@
     }
   },
   "last_transition": {
-    "role": "Fixer",
-    "from": "FIXING",
-    "to": "INTEGRATE_READY",
-    "reason": "All five formal hard findings corrected on f5f2b5de, six threads resolved, and exact-head Verify 38057074480 passed build plus 10/10 tests."
+    "role": "Integrator",
+    "from": "INTEGRATE_READY",
+    "to": "INTEGRATING",
+    "reason": "Claimed PR #10 at exact head f5f2b5de after Fixer resolved the formal hard set, all threads reached resolved state and exact-head CI passed."
   },
   "health": {
     "nonce": "files-swarm-20261010-1136",
