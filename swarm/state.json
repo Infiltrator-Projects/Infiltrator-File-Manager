@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "revision": 15,
+  "revision": 16,
   "mode": "WORK",
-  "updated_at": "2026-10-10T13:21:52.442Z",
+  "updated_at": "2026-10-10T13:31:01.291Z",
   "baseline": {
     "main_sha": "8c2daf6cdf3e214186b9fdb880799ad8ae5c554f",
     "version": "0.1.16",
@@ -11,7 +11,7 @@
   },
   "stroke": {
     "id": "files-20261010-destination-ownership",
-    "phase": "REVIEW_READY",
+    "phase": "REVIEWING",
     "package": {
       "title": "Protect destination ownership during transfers and replacement rollback",
       "golden_journeys": [
@@ -73,7 +73,11 @@
     "release": null,
     "blocker": null
   },
-  "lease": null,
+  "lease": {
+    "role": "Reviewer",
+    "token": "reviewer-destination-ownership-20261010T133101Z",
+    "expires_at": "2026-10-10T14:16:01.291Z"
+  },
   "heartbeats": {
     "Architect": {
       "at": "2026-10-10T12:55:59.134Z",
@@ -90,11 +94,11 @@
       "next_action": "Reviewer must perform a fresh broad independent review of exact head d6b1ba6224f1b80079a2de497c5f0993a4819447 and submit the formal verdict."
     },
     "Reviewer": {
-      "at": "2026-10-10T12:25:57.300Z",
-      "status": "BUILDING under live Builder lease; read-only risk inspection found unresolved candidate defects",
-      "observed_revision": 9,
-      "observed_head": "b4a48717cdcae598a6dab92ec538700769c774d7",
-      "next_action": "Builder must reconcile PR #10 head into state, fix the directory-claim, atomic cleanup, Release-disabled test and owned-partial rollback defects, resolve/reconcile all five review threads, rerun exact-head CI, then transition to REVIEW_READY."
+      "at": "2026-10-10T13:31:01.291Z",
+      "status": "Claimed exact-head independent review for PR #10",
+      "observed_revision": 15,
+      "observed_head": "d6b1ba6224f1b80079a2de497c5f0993a4819447",
+      "next_action": "Review the full candidate and surrounding invariants, reconcile the three new exact-head automated review threads, run/verify exact-head evidence, and submit a formal review."
     },
     "Integrator": {
       "at": "2026-10-10T12:52:05.260Z",
@@ -112,10 +116,10 @@
     }
   },
   "last_transition": {
-    "role": "Builder",
-    "from": "BUILDING",
-    "to": "REVIEW_READY",
-    "reason": "Completed the full five-thread correction set on PR #10; exact-head Release workflow 38055256508 is green and all existing inline threads are resolved with evidence."
+    "role": "Reviewer",
+    "from": "REVIEW_READY",
+    "to": "REVIEWING",
+    "reason": "Claimed the complete exact-head candidate for independent review after Builder handoff and green Release CI."
   },
   "health": {
     "nonce": "files-swarm-20261010-1136",
